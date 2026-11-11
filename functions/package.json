@@ -5,7 +5,8 @@
   "engines": { "node": "20" },
   "scripts": {
     "build": "tsc",
-    "deploy": "npm run build && firebase deploy --only functions"
+    "deploy": "npm run build && firebase deploy --only functions",
+    "set-admin-claim": "node scripts/set-admin-claim.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.840.0",

@@ -51,11 +51,12 @@ VITE_FIREBASE_APPCHECK_SITE_KEY=...
 1. Crie o projeto no Firebase.
 2. Ative Authentication, Firestore e Cloud Functions.
 3. Configure App Check com o provedor da sua preferência.
-4. Implante as funções com:
+4. Implante as funções no mesmo projeto usado pelo frontend (`estoque-armazem`):
 
 ```
-cd functions && npm install && npm run build
-firebase deploy --only functions
+npm --prefix functions install
+npm --prefix functions run build
+firebase deploy --project estoque-armazem --only functions
 ```
 
 5. Implante as regras e índices:
@@ -66,13 +67,19 @@ firebase deploy --only firestore:rules,firestore:indexes
 
 ## Primeiro administrador
 
-Crie a conta administrativa no Firebase Authentication e, em seguida, atribua `role: admin` via custom claim:
+Crie a conta no Firebase Authentication. Em um ambiente confiável com Application Default Credentials autorizadas a consultar e atualizar usuários do Firebase Authentication, atribua a custom claim:
 
 ```
-firebase functions:log
+npm --prefix functions run set-admin-claim -- estoque-armazem admin@empresa.com
 ```
 
-ou via Cloud Function de administração (padrão do projeto) executada em ambiente seguro no backend.
+O usuário deve sair e entrar novamente para atualizar o token. Não atribua essa claim a partir do navegador ou de uma função pública.
+
+## App Check e acesso web
+
+As callable functions exigem App Check. Configure `VITE_FIREBASE_APPCHECK_SITE_KEY` nas variáveis de ambiente da implantação Vercel usando a chave reCAPTCHA v3 do mesmo projeto Firebase. `verifyEmployee` aceita chamadas do domínio `https://estoquearmazem.vercel.app`.
+
+Se a aplicação exibir erro CORS, verifique primeiro se `verifyEmployee` existe no projeto `estoque-armazem`, região `us-central1`. Um endpoint inexistente responde 404 sem cabeçalhos CORS; publique as functions com o comando acima.
 
 ## Cloudflare R2
 

@@ -18,7 +18,7 @@ export async function signInAdmin(email: string, password: string) {
   const token = await credential.user.getIdTokenResult(true);
   if (token.claims.role !== 'admin') {
     await signOut(auth);
-    throw new Error('Esta conta não possui permissão administrativa.');
+    throw new Error('Login validado, mas esta conta não tem o perfil administrativo. Solicite ao administrador a atribuição da permissão.');
   }
   return credential.user;
 }

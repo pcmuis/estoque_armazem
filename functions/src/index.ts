@@ -36,7 +36,7 @@ function requireAdmin(request: { auth?: { token: Record<string, unknown> } | nul
   if (!request.auth || request.auth.token.role !== 'admin') throw new HttpsError('permission-denied', 'Acesso administrativo necessário.');
 }
 
-export const verifyEmployee = onCall({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+export const verifyEmployee = onCall({ cors: ['https://estoquearmazem.vercel.app'], enforceAppCheck: true, maxInstances: 10 }, async (request) => {
   const matricula = typeof request.data?.matricula === 'string' ? request.data.matricula.trim() : '';
   if (!/^[a-zA-Z0-9._-]{2,32}$/.test(matricula)) throw new HttpsError('invalid-argument', 'Matrícula inválida.');
   const clientIp = request.rawRequest.ip ?? 'unknown';
