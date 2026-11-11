@@ -41,7 +41,6 @@ VITE_FIREBASE_AUTH_DOMAIN=...
 VITE_FIREBASE_PROJECT_ID=...
 VITE_FIREBASE_APP_ID=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
-VITE_FIREBASE_APPCHECK_SITE_KEY=...
 ```
 
 > A aplicação exige o Firebase configurado e valido antes de abrir o sistema. Caso o arquivo não exista, a interface permanece em modo instrução e bloqueia acesso funcional.
@@ -50,7 +49,7 @@ VITE_FIREBASE_APPCHECK_SITE_KEY=...
 
 1. Crie o projeto no Firebase.
 2. Ative Authentication, Firestore e Cloud Functions.
-3. Configure App Check com o provedor da sua preferência.
+3. App Check é opcional; não é necessário configurar uma chave para usar o sistema.
 4. Implante as funções no mesmo projeto usado pelo frontend (`estoque-armazem`):
 
 ```
@@ -77,7 +76,7 @@ O usuário deve sair e entrar novamente para atualizar o token. Não atribua ess
 
 ## App Check e acesso web
 
-As callable functions exigem App Check. Configure `VITE_FIREBASE_APPCHECK_SITE_KEY` nas variáveis de ambiente da implantação Vercel usando a chave reCAPTCHA v3 do mesmo projeto Firebase. `verifyEmployee` aceita chamadas do domínio `https://estoquearmazem.vercel.app`.
+App Check não é obrigatório neste projeto. As operações protegidas validam autenticação e perfil no backend, e o acesso por matrícula tem limitação de tentativas. `verifyEmployee` aceita chamadas do domínio `https://estoquearmazem.vercel.app`.
 
 Se a aplicação exibir erro CORS, verifique primeiro se `verifyEmployee` existe no projeto `estoque-armazem`, região `us-central1`. Um endpoint inexistente responde 404 sem cabeçalhos CORS; publique as functions com o comando acima.
 

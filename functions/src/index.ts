@@ -36,7 +36,7 @@ function requireAdmin(request: { auth?: { token: Record<string, unknown> } | nul
   if (!request.auth || request.auth.token.role !== 'admin') throw new HttpsError('permission-denied', 'Acesso administrativo necessário.');
 }
 
-export const verifyEmployee = onCall({ cors: ['https://estoquearmazem.vercel.app'], enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+export const verifyEmployee = onCall({ cors: ['https://estoquearmazem.vercel.app'], maxInstances: 10 }, async (request) => {
   const matricula = typeof request.data?.matricula === 'string' ? request.data.matricula.trim() : '';
   if (!/^[a-zA-Z0-9._-]{2,32}$/.test(matricula)) throw new HttpsError('invalid-argument', 'Matrícula inválida.');
   const clientIp = request.rawRequest.ip ?? 'unknown';
@@ -64,7 +64,7 @@ export const verifyEmployee = onCall({ cors: ['https://estoquearmazem.vercel.app
   return { token };
 });
 
-export const searchItems = onCall({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+export const searchItems = onCall({ maxInstances: 10 }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Entre no sistema para pesquisar.');
   const prefix = typeof request.data?.prefix === 'string' ? normalize(request.data.prefix).slice(0, 20) : '';
   if (prefix.length < 2) return { items: [] };
@@ -72,7 +72,7 @@ export const searchItems = onCall({ enforceAppCheck: true, maxInstances: 10 }, a
   return { items: snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) };
 });
 
-export const recordMovement = onCall({ enforceAppCheck: true, maxInstances: 20 }, async (request) => {
+export const recordMovement = onCall({ maxInstances: 20 }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Entre no sistema para movimentar o estoque.');
   const { itemId, movementType, quantity, idempotencyKey } = request.data ?? {};
   if (typeof itemId !== 'string' || !['entry', 'withdrawal'].includes(movementType) || !Number.isFinite(quantity) || quantity <= 0 || !validQuantity(quantity) || typeof idempotencyKey !== 'string' || !/^[0-9a-f-]{36}$/i.test(idempotencyKey)) {
@@ -116,7 +116,7 @@ export const recordMovement = onCall({ enforceAppCheck: true, maxInstances: 20 }
   return { quantityAfter };
 });
 
-export const saveItem = onCall({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+export const saveItem = onCall({ maxInstances: 10 }, async (request) => {
   requireAdmin(request);
   const input = request.data ?? {};
   const name = typeof input.name === 'string' ? input.name.trim() : '';
@@ -169,7 +169,7 @@ export const saveItem = onCall({ enforceAppCheck: true, maxInstances: 10 }, asyn
   return { itemId };
 });
 
-export const saveEmployee = onCall({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+export const saveEmployee = onCall({ maxInstances: 10 }, async (request) => {
   requireAdmin(request);
   const input = request.data ?? {};
   const name = typeof input.name === 'string' ? input.name.trim() : '';
@@ -195,7 +195,7 @@ export const saveEmployee = onCall({ enforceAppCheck: true, maxInstances: 10 }, 
   return { employeeId };
 });
 
-export const listMovements = onCall({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+export const listMovements = onCall({ maxInstances: 10 }, async (request) => {
   requireAdmin(request);
   const itemId = typeof request.data?.itemId === 'string' ? request.data.itemId : undefined;
   let movementsQuery = db.collection('stockMovements').orderBy('createdAt', 'desc').limit(100);
@@ -204,7 +204,7 @@ export const listMovements = onCall({ enforceAppCheck: true, maxInstances: 10 },
   return { movements: snapshot.docs.map((movement) => ({ id: movement.id, ...movement.data() })) };
 });
 
-export const getDashboardSummary = onCall({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+export const getDashboardSummary = onCall({ maxInstances: 10 }, async (request) => {
   requireAdmin(request);
   const offset = Number.isInteger(request.data?.timezoneOffsetMinutes) && Math.abs(request.data.timezoneOffsetMinutes) <= 840 ? request.data.timezoneOffsetMinutes : 0;
   const now = Date.now();
@@ -231,7 +231,7 @@ export const getDashboardSummary = onCall({ enforceAppCheck: true, maxInstances:
   };
 });
 
-export const createImageUpload = onCall({ enforceAppCheck: true, maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket, r2PublicBaseUrl] }, async (request) => {
+export const createImageUpload = onCall({ maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket, r2PublicBaseUrl] }, async (request) => {
   requireAdmin(request);
   const { itemId, contentType, size } = request.data ?? {};
   if (typeof itemId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(itemId) || contentType !== 'image/webp' || !Number.isSafeInteger(size) || size <= 0 || size > 5 * 1024 * 1024) throw new HttpsError('invalid-argument', 'Imagem inválida ou maior que 5 MB.');
@@ -245,7 +245,7 @@ export const createImageUpload = onCall({ enforceAppCheck: true, maxInstances: 5
   return { uploadUrl, imageObjectKey, imageUrl };
 });
 
-export const deleteItemImage = onCall({ enforceAppCheck: true, maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket] }, async (request) => {
+export const deleteItemImage = onCall({ maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket] }, async (request) => {
   requireAdmin(request);
   const { itemId, imageObjectKey } = request.data ?? {};
   if (typeof itemId !== 'string' || typeof imageObjectKey !== 'string' || !imageObjectKey.startsWith(`items/${itemId}/`) || imageObjectKey.includes('..')) {
