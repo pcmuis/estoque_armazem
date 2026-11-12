@@ -5,7 +5,7 @@
   "engines": { "node": "20" },
   "scripts": {
     "build": "tsc",
-    "deploy": "npm run build && npx --yes firebase-tools deploy --project estoque-armazem --only functions",
+    "deploy": "npm run build && npx --yes firebase-tools deploy --project estoque-armazem --only functions,firestore:rules,firestore:indexes",
     "set-admin-claim": "node scripts/set-admin-claim.cjs"
   },
   "dependencies": {

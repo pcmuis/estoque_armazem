@@ -26,7 +26,7 @@
 
   let user = $state<User | null>(null);
   let userRole = $state<UserRole>(null);
-  let employee = $state<{ id: string; name: string; matricula: string } | null>(null);
+  let employee = $state<{ id: string; name: string; matricula: string; canAdd: boolean; canWithdraw: boolean } | null>(null);
   let page = $state<Page>('overview');
   let adminLogin = $state(false);
   let matricula = $state('');
@@ -92,13 +92,18 @@
         ? 'admin'
         : token.claims.role === 'employee' ? 'employee' : null;
       employee = userRole === 'employee' ? {
-        id: String(token.claims.employeeId ?? ''), name: String(token.claims.name ?? 'Funcionário'),
-        matricula: String(token.claims.matricula ?? '')
+        id: String(token.claims.employeeId ?? ''),
+        name: String(token.claims.name ?? 'Funcionário'),
+        matricula: String(token.claims.matricula ?? ''),
+        canAdd: token.claims.canAdd === true,
+        canWithdraw: token.claims.canWithdraw === true
       } : null;
       if (!userRole) {
         await signOutUser();
         throw new Error('Esta conta não possui um perfil autorizado.');
       }
+      if (employee?.canAdd && !employee.canWithdraw) movementType = 'entry';
+      else if (employee?.canWithdraw) movementType = 'withdrawal';
       await refreshItems();
       if (userRole === 'admin') await loadAdminData();
     } catch (error) {
@@ -569,10 +574,14 @@
             {#if selectedItem.customFields.length}<section class="custom-fields"><p class="eyebrow">INFORMAÇÕES ADICIONAIS</p><dl>{#each selectedItem.customFields as field (field.id)}<div><dt>{field.label}</dt><dd>{field.value}</dd></div>{/each}</dl></section>{/if}
             <form class="movement-panel" onsubmit={submitMovement}>
               <div class="section-heading"><div><p class="eyebrow">MOVIMENTAÇÃO</p><h2>Registrar operação</h2></div></div>
-              <div class="segmented"><button type="button" class:chosen={movementType === 'withdrawal'} onclick={() => movementType = 'withdrawal'}><Minus size={17} /> Retirar</button><button type="button" class:chosen={movementType === 'entry'} onclick={() => movementType = 'entry'}><Plus size={17} /> Adicionar</button></div>
+              <div class="segmented">
+                {#if userRole !== 'employee' || employee?.canWithdraw}<button type="button" class:chosen={movementType === 'withdrawal'} onclick={() => movementType = 'withdrawal'}><Minus size={17} /> Retirar</button>{/if}
+                {#if userRole !== 'employee' || employee?.canAdd}<button type="button" class:chosen={movementType === 'entry'} onclick={() => movementType = 'entry'}><Plus size={17} /> Adicionar</button>{/if}
+              </div>
+              {#if userRole === 'employee' && !employee?.canAdd && !employee?.canWithdraw}<p class="form-hint">Seu acesso não permite movimentações. Solicite a liberação ao administrador.</p>{/if}
               <div class="movement-inputs"><label>QUANTIDADE<input type="number" min="0.001" step="0.001" bind:value={movementQuantity} required /></label><label>MOTIVO <span>(opcional)</span><input bind:value={movementReason} maxlength="250" placeholder="Ex.: manutenção preventiva" /></label></div>
               <p class="balance-preview">Saldo atual <strong>{selectedItem.quantity} {selectedItem.unit}</strong>{#if movementQuantity > 0}<span>→</span> após operação <strong>{Math.max(0, selectedItem.quantity + (movementType === 'entry' ? Number(movementQuantity) : -Number(movementQuantity)))} {selectedItem.unit}</strong>{/if}</p>
-              <button class="primary-action confirm-movement" type="submit" disabled={busy || movementQuantity < 1 || (movementType === 'withdrawal' && movementQuantity > selectedItem.quantity)}>{busy ? 'REGISTRANDO...' : movementType === 'entry' ? 'CONFIRMAR ENTRADA' : 'CONFIRMAR RETIRADA'} <ArrowRight size={18} /></button>
+              <button class="primary-action confirm-movement" type="submit" disabled={busy || movementQuantity < 1 || (userRole === 'employee' && !employee?.canAdd && !employee?.canWithdraw) || (movementType === 'withdrawal' && movementQuantity > selectedItem.quantity)}>{busy ? 'REGISTRANDO...' : movementType === 'entry' ? 'CONFIRMAR ENTRADA' : 'CONFIRMAR RETIRADA'} <ArrowRight size={18} /></button>
             </form>
           </div>
         </div>

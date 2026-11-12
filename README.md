@@ -54,18 +54,15 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...
 
 ```
 npm --prefix functions run deploy
-firebase deploy --project estoque-armazem --only firestore:rules,firestore:indexes
 ```
 
 ## Acesso administrativo
 
-Crie a conta no Firebase Authentication com o provedor de e-mail e senha. Qualquer conta autenticada por esse provedor recebe acesso administrativo, sem função adicional ou custom claim manual. Mantenha nesse provedor apenas as contas que devem administrar o sistema.
-
-Contas de funcionários continuam sendo autenticadas pelo fluxo de matrícula; esse fluxo usa tokens `custom` e mantém as permissões de funcionário.
+Contas administrativas entram com e-mail e senha do Firebase e podem cadastrar, editar e desativar itens e mantenedores, além de consultar o painel e o histórico. Quem entra por matrícula pode consultar itens ativos e registrar entradas/retiradas somente conforme as permissões definidas para seu cadastro; não pode gerenciar itens nem mantenedores.
 
 ## App Check e acesso web
 
-App Check não é obrigatório neste projeto. As operações protegidas validam autenticação e perfil no backend, e o acesso por matrícula tem limitação de tentativas. `verifyEmployee` aceita chamadas do domínio `https://estoquearmazem.vercel.app`.
+App Check não é obrigatório neste projeto. As operações do backend exigem uma sessão autenticada, e o acesso por matrícula tem limitação de tentativas. `verifyEmployee` aceita chamadas do domínio `https://estoquearmazem.vercel.app`.
 
 Se a aplicação exibir erro CORS, verifique primeiro se `verifyEmployee` existe no projeto `estoque-armazem`, região `us-central1`. Um endpoint inexistente responde 404 sem cabeçalhos CORS; publique as functions com o comando acima.
 

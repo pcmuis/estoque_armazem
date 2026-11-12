@@ -33,13 +33,19 @@ function searchTokens(values: string[]) {
   return [...tokens].slice(0, 300);
 }
 
+function requireSignedIn(request: { auth?: unknown | null }) {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Entre no sistema para continuar.');
+}
+
 function hasAdminAccess(auth: { uid: string; token: Record<string, unknown> }) {
   const firebase = auth.token.firebase as { sign_in_provider?: unknown } | undefined;
   return auth.token.role === 'admin' || (firebase?.sign_in_provider === 'password' && !auth.uid.startsWith('employee_'));
 }
 
 function requireAdmin(request: { auth?: { uid: string; token: Record<string, unknown> } | null }) {
-  if (!request.auth || !hasAdminAccess(request.auth)) throw new HttpsError('permission-denied', 'Acesso administrativo necessário.');
+  if (!request.auth || !hasAdminAccess(request.auth)) {
+    throw new HttpsError('permission-denied', 'Acesso administrativo necessário.');
+  }
 }
 
 export const verifyEmployee = onCall({ cors: callableCors, maxInstances: 10 }, async (request) => {
@@ -84,9 +90,12 @@ export const recordMovement = onCall({ cors: callableCors, maxInstances: 20 }, a
   if (typeof itemId !== 'string' || !['entry', 'withdrawal'].includes(movementType) || !Number.isFinite(quantity) || quantity <= 0 || !validQuantity(quantity) || typeof idempotencyKey !== 'string' || !/^[0-9a-f-]{36}$/i.test(idempotencyKey)) {
     throw new HttpsError('invalid-argument', 'Dados da movimentação inválidos.');
   }
-  const isAdmin = hasAdminAccess(request.auth);
   const employeeId = typeof request.auth.token.employeeId === 'string' ? request.auth.token.employeeId : '';
-  if (!isAdmin && (!employeeId || request.auth.uid !== `employee_${employeeId}`)) throw new HttpsError('permission-denied', 'Perfil sem permissão para movimentar.');
+  const isAdmin = hasAdminAccess(request.auth);
+  const employeeSession = request.auth.token.role === 'employee' && request.auth.uid === `employee_${employeeId}`;
+  if (!isAdmin && (!employeeId || request.auth.uid !== `employee_${employeeId}`)) {
+    throw new HttpsError('permission-denied', 'Perfil sem permissão para movimentar.');
+  }
   const movementId = createHash('sha256').update(`${request.auth.uid}:${idempotencyKey}`).digest('hex');
   const itemRef = db.collection('items').doc(itemId);
   const movementRef = db.collection('stockMovements').doc(movementId);
@@ -110,9 +119,11 @@ export const recordMovement = onCall({ cors: callableCors, maxInstances: 20 }, a
     const minimumStock = itemSnapshot.get('minimumStock') as number;
     transaction.update(itemRef, { quantity: after, stockStatus: after <= 0 ? 'empty' : after <= minimumStock ? 'low' : 'normal', updatedAt: FieldValue.serverTimestamp() });
     transaction.create(movementRef, {
-      itemId, itemNameSnapshot: itemSnapshot.get('name'), itemCode: itemSnapshot.get('code'), employeeId: isAdmin ? request.auth!.uid : employeeId,
-      employeeNameSnapshot: isAdmin ? String(request.auth!.token.name ?? request.auth!.token.email ?? 'Administração') : employee?.name,
-      matriculaSnapshot: isAdmin ? 'ADMIN' : employee?.matricula,
+      itemId, itemNameSnapshot: itemSnapshot.get('name'), itemCode: itemSnapshot.get('code'), employeeId: employeeSession ? employeeId : request.auth!.uid,
+      employeeNameSnapshot: employeeSession
+        ? String(employee?.name ?? request.auth!.token.name ?? 'Funcionário')
+        : String(request.auth!.token.name ?? request.auth!.token.email ?? 'Administração'),
+      matriculaSnapshot: employeeSession ? String(employee?.matricula ?? request.auth!.token.matricula ?? '') : 'ADMIN',
       movementType, quantity, quantityBefore: before, quantityAfter: after,
       reason: typeof request.data.reason === 'string' ? request.data.reason.trim().slice(0, 250) : '',
       createdAt: FieldValue.serverTimestamp(), idempotencyKey
