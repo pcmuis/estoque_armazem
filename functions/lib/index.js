@@ -17,6 +17,7 @@ const r2AccountId = (0, params_1.defineSecret)('R2_ACCOUNT_ID');
 const r2Bucket = (0, params_1.defineSecret)('R2_BUCKET');
 const r2PublicBaseUrl = (0, params_1.defineSecret)('R2_PUBLIC_BASE_URL');
 const maxCustomFields = 30;
+const callableCors = ['https://estoquearmazem.vercel.app'];
 function normalize(value) {
     return value.trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
@@ -39,7 +40,7 @@ function requireAdmin(request) {
     if (!request.auth || !hasAdminAccess(request.auth))
         throw new https_1.HttpsError('permission-denied', 'Acesso administrativo necessário.');
 }
-exports.verifyEmployee = (0, https_1.onCall)({ cors: ['https://estoquearmazem.vercel.app'], maxInstances: 10 }, async (request) => {
+exports.verifyEmployee = (0, https_1.onCall)({ cors: callableCors, maxInstances: 10 }, async (request) => {
     const matricula = typeof request.data?.matricula === 'string' ? request.data.matricula.trim() : '';
     if (!/^[a-zA-Z0-9._-]{2,32}$/.test(matricula))
         throw new https_1.HttpsError('invalid-argument', 'Matrícula inválida.');
@@ -69,7 +70,7 @@ exports.verifyEmployee = (0, https_1.onCall)({ cors: ['https://estoquearmazem.ve
     });
     return { token };
 });
-exports.searchItems = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
+exports.searchItems = (0, https_1.onCall)({ cors: callableCors, maxInstances: 10 }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Entre no sistema para pesquisar.');
     const prefix = typeof request.data?.prefix === 'string' ? normalize(request.data.prefix).slice(0, 20) : '';
@@ -78,7 +79,7 @@ exports.searchItems = (0, https_1.onCall)({ maxInstances: 10 }, async (request) 
     const snapshot = await db.collection('items').where('active', '==', true).where('searchTokens', 'array-contains', prefix).limit(40).get();
     return { items: snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) };
 });
-exports.recordMovement = (0, https_1.onCall)({ maxInstances: 20 }, async (request) => {
+exports.recordMovement = (0, https_1.onCall)({ cors: callableCors, maxInstances: 20 }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Entre no sistema para movimentar o estoque.');
     const { itemId, movementType, quantity, idempotencyKey } = request.data ?? {};
@@ -128,7 +129,7 @@ exports.recordMovement = (0, https_1.onCall)({ maxInstances: 20 }, async (reques
     });
     return { quantityAfter };
 });
-exports.saveItem = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
+exports.saveItem = (0, https_1.onCall)({ cors: callableCors, maxInstances: 10 }, async (request) => {
     requireAdmin(request);
     const input = request.data ?? {};
     const name = typeof input.name === 'string' ? input.name.trim() : '';
@@ -184,7 +185,7 @@ exports.saveItem = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => 
     });
     return { itemId };
 });
-exports.saveEmployee = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
+exports.saveEmployee = (0, https_1.onCall)({ cors: callableCors, maxInstances: 10 }, async (request) => {
     requireAdmin(request);
     const input = request.data ?? {};
     const name = typeof input.name === 'string' ? input.name.trim() : '';
@@ -213,7 +214,7 @@ exports.saveEmployee = (0, https_1.onCall)({ maxInstances: 10 }, async (request)
     });
     return { employeeId };
 });
-exports.listMovements = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
+exports.listMovements = (0, https_1.onCall)({ cors: callableCors, maxInstances: 10 }, async (request) => {
     requireAdmin(request);
     const itemId = typeof request.data?.itemId === 'string' ? request.data.itemId : undefined;
     let movementsQuery = db.collection('stockMovements').orderBy('createdAt', 'desc').limit(100);
@@ -222,7 +223,7 @@ exports.listMovements = (0, https_1.onCall)({ maxInstances: 10 }, async (request
     const snapshot = await movementsQuery.get();
     return { movements: snapshot.docs.map((movement) => ({ id: movement.id, ...movement.data() })) };
 });
-exports.getDashboardSummary = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
+exports.getDashboardSummary = (0, https_1.onCall)({ cors: callableCors, maxInstances: 10 }, async (request) => {
     requireAdmin(request);
     const offset = Number.isInteger(request.data?.timezoneOffsetMinutes) && Math.abs(request.data.timezoneOffsetMinutes) <= 840 ? request.data.timezoneOffsetMinutes : 0;
     const now = Date.now();
@@ -248,7 +249,7 @@ exports.getDashboardSummary = (0, https_1.onCall)({ maxInstances: 10 }, async (r
         todayWithdrawals: withdrawals.data().count
     };
 });
-exports.createImageUpload = (0, https_1.onCall)({ maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket, r2PublicBaseUrl] }, async (request) => {
+exports.createImageUpload = (0, https_1.onCall)({ cors: callableCors, maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket, r2PublicBaseUrl] }, async (request) => {
     requireAdmin(request);
     const { itemId, contentType, size } = request.data ?? {};
     if (typeof itemId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(itemId) || contentType !== 'image/webp' || !Number.isSafeInteger(size) || size <= 0 || size > 5 * 1024 * 1024)
@@ -262,7 +263,7 @@ exports.createImageUpload = (0, https_1.onCall)({ maxInstances: 5, secrets: [r2A
     const imageUrl = `${r2PublicBaseUrl.value().replace(/\/$/, '')}/${imageObjectKey}`;
     return { uploadUrl, imageObjectKey, imageUrl };
 });
-exports.deleteItemImage = (0, https_1.onCall)({ maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket] }, async (request) => {
+exports.deleteItemImage = (0, https_1.onCall)({ cors: callableCors, maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket] }, async (request) => {
     requireAdmin(request);
     const { itemId, imageObjectKey } = request.data ?? {};
     if (typeof itemId !== 'string' || typeof imageObjectKey !== 'string' || !imageObjectKey.startsWith(`items/${itemId}/`) || imageObjectKey.includes('..')) {

@@ -50,12 +50,11 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...
 1. Crie o projeto no Firebase.
 2. Ative Authentication, Firestore e Cloud Functions.
 3. App Check é opcional; não é necessário configurar uma chave para usar o sistema.
-4. Compile as funções e publique funções, regras e índices no mesmo projeto usado pelo frontend (`estoque-armazem`):
+4. Compile e publique funções, regras e índices no mesmo projeto usado pelo frontend (`estoque-armazem`):
 
 ```
-npm --prefix functions install
-npm --prefix functions run build
-firebase deploy --project estoque-armazem --only functions,firestore:rules,firestore:indexes
+npm --prefix functions run deploy
+firebase deploy --project estoque-armazem --only firestore:rules,firestore:indexes
 ```
 
 ## Acesso administrativo
