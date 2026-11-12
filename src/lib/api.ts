@@ -18,11 +18,6 @@ export async function signInAdmin(email: string, password: string) {
   return credential.user;
 }
 
-export async function ensureAdminRole() {
-  const result = await call<Record<string, never>, { role: 'admin' }>('ensureAdminRole')({});
-  return result.data;
-}
-
 export async function listItems(search: string, cursor?: QueryDocumentSnapshot) {
   const { db, functions } = getFirebaseServices();
   const normalized = search.trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '');

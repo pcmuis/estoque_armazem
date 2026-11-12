@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteItemImage = exports.createImageUpload = exports.getDashboardSummary = exports.listMovements = exports.saveEmployee = exports.saveItem = exports.recordMovement = exports.searchItems = exports.ensureAdminRole = exports.verifyEmployee = void 0;
+exports.deleteItemImage = exports.createImageUpload = exports.getDashboardSummary = exports.listMovements = exports.saveEmployee = exports.saveItem = exports.recordMovement = exports.searchItems = exports.verifyEmployee = void 0;
 const node_crypto_1 = require("node:crypto");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const s3_request_presigner_1 = require("@aws-sdk/s3-request-presigner");
@@ -31,8 +31,12 @@ function searchTokens(values) {
     }
     return [...tokens].slice(0, 300);
 }
+function hasAdminAccess(auth) {
+    const firebase = auth.token.firebase;
+    return auth.token.role === 'admin' || (firebase?.sign_in_provider === 'password' && !auth.uid.startsWith('employee_'));
+}
 function requireAdmin(request) {
-    if (!request.auth || request.auth.token.role !== 'admin')
+    if (!request.auth || !hasAdminAccess(request.auth))
         throw new https_1.HttpsError('permission-denied', 'Acesso administrativo necessário.');
 }
 exports.verifyEmployee = (0, https_1.onCall)({ cors: ['https://estoquearmazem.vercel.app'], maxInstances: 10 }, async (request) => {
@@ -65,20 +69,6 @@ exports.verifyEmployee = (0, https_1.onCall)({ cors: ['https://estoquearmazem.ve
     });
     return { token };
 });
-exports.ensureAdminRole = (0, https_1.onCall)({ cors: ['https://estoquearmazem.vercel.app'], maxInstances: 10 }, async (request) => {
-    if (!request.auth)
-        throw new https_1.HttpsError('unauthenticated', 'Entre com sua conta administrativa.');
-    const provider = request.auth.token.firebase?.sign_in_provider;
-    if (provider !== 'password' || request.auth.uid.startsWith('employee_')) {
-        throw new https_1.HttpsError('permission-denied', 'Acesso administrativo não autorizado.');
-    }
-    const auth = (0, auth_1.getAuth)();
-    const user = await auth.getUser(request.auth.uid);
-    if (!user.email)
-        throw new https_1.HttpsError('permission-denied', 'A conta administrativa precisa ter um e-mail.');
-    await auth.setCustomUserClaims(user.uid, { ...user.customClaims, role: 'admin' });
-    return { role: 'admin' };
-});
 exports.searchItems = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Entre no sistema para pesquisar.');
@@ -95,7 +85,7 @@ exports.recordMovement = (0, https_1.onCall)({ maxInstances: 20 }, async (reques
     if (typeof itemId !== 'string' || !['entry', 'withdrawal'].includes(movementType) || !Number.isFinite(quantity) || quantity <= 0 || !validQuantity(quantity) || typeof idempotencyKey !== 'string' || !/^[0-9a-f-]{36}$/i.test(idempotencyKey)) {
         throw new https_1.HttpsError('invalid-argument', 'Dados da movimentação inválidos.');
     }
-    const isAdmin = request.auth.token.role === 'admin';
+    const isAdmin = hasAdminAccess(request.auth);
     const employeeId = typeof request.auth.token.employeeId === 'string' ? request.auth.token.employeeId : '';
     if (!isAdmin && (!employeeId || request.auth.uid !== `employee_${employeeId}`))
         throw new https_1.HttpsError('permission-denied', 'Perfil sem permissão para movimentar.');

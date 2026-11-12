@@ -9,7 +9,7 @@
   import type { QueryDocumentSnapshot } from 'firebase/firestore';
   import { auth, db, firebaseConfigured } from './lib/firebase';
   import {
-    deleteItemImage, ensureAdminRole, getDashboardSummary, listItems, listMovements, loadAllAdminItems, loadEmployees, passwordReset, recordMovement,
+    deleteItemImage, getDashboardSummary, listItems, listMovements, loadAllAdminItems, loadEmployees, passwordReset, recordMovement,
     saveEmployee, saveItem, signInAdmin, signInEmployee, signOutUser, uploadOptimizedImage
   } from './lib/api';
   import type { CustomField, Employee, InventoryItem, StockMovement } from './lib/types';
@@ -83,12 +83,10 @@
     authLoading = true;
     errorMessage = '';
     try {
-      let token = await currentUser.getIdTokenResult();
-      if (token.claims.role !== 'admin' && !currentUser.uid.startsWith('employee_')) {
-        await ensureAdminRole();
-        token = await currentUser.getIdTokenResult(true);
-      }
-      userRole = token.claims.role === 'admin' ? 'admin' : token.claims.role === 'employee' ? 'employee' : null;
+      const token = await currentUser.getIdTokenResult();
+      userRole = token.claims.role === 'admin' || token.signInProvider === 'password'
+        ? 'admin'
+        : token.claims.role === 'employee' ? 'employee' : null;
       employee = userRole === 'employee' ? {
         id: String(token.claims.employeeId ?? ''), name: String(token.claims.name ?? 'Funcionário'),
         matricula: String(token.claims.matricula ?? '')
@@ -109,7 +107,7 @@
 
   $effect(() => {
     const term = search;
-    if (!user || selectedItem) return;
+    if (!user || !userRole || selectedItem) return;
     const timer = setTimeout(() => refreshItems(term), 250);
     return () => clearTimeout(timer);
   });

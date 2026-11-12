@@ -50,25 +50,19 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...
 1. Crie o projeto no Firebase.
 2. Ative Authentication, Firestore e Cloud Functions.
 3. App Check é opcional; não é necessário configurar uma chave para usar o sistema.
-4. Implante as funções no mesmo projeto usado pelo frontend (`estoque-armazem`):
+4. Compile as funções e publique funções, regras e índices no mesmo projeto usado pelo frontend (`estoque-armazem`):
 
 ```
 npm --prefix functions install
 npm --prefix functions run build
-firebase deploy --project estoque-armazem --only functions
+firebase deploy --project estoque-armazem --only functions,firestore:rules,firestore:indexes
 ```
 
-5. Implante as regras e índices:
+## Acesso administrativo
 
-```
-firebase deploy --only firestore:rules,firestore:indexes
-```
+Crie a conta no Firebase Authentication com o provedor de e-mail e senha. Qualquer conta autenticada por esse provedor recebe acesso administrativo, sem função adicional ou custom claim manual. Mantenha nesse provedor apenas as contas que devem administrar o sistema.
 
-## Primeiro administrador
-
-Crie a conta administrativa no Firebase Authentication e use o acesso administrativo do sistema com esse e-mail e senha. No primeiro login, o backend valida a sessão de e-mail/senha e atribui automaticamente a permissão administrativa necessária às operações protegidas. Não é necessário atribuir custom claims manualmente.
-
-Contas de funcionários continuam sendo autenticadas pelo fluxo de matrícula e não recebem acesso administrativo.
+Contas de funcionários continuam sendo autenticadas pelo fluxo de matrícula; esse fluxo usa tokens `custom` e mantém as permissões de funcionário.
 
 ## App Check e acesso web
 

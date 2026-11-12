@@ -32,8 +32,13 @@ function searchTokens(values: string[]) {
   return [...tokens].slice(0, 300);
 }
 
-function requireAdmin(request: { auth?: { token: Record<string, unknown> } | null }) {
-  if (!request.auth || request.auth.token.role !== 'admin') throw new HttpsError('permission-denied', 'Acesso administrativo necessário.');
+function hasAdminAccess(auth: { uid: string; token: Record<string, unknown> }) {
+  const firebase = auth.token.firebase as { sign_in_provider?: unknown } | undefined;
+  return auth.token.role === 'admin' || (firebase?.sign_in_provider === 'password' && !auth.uid.startsWith('employee_'));
+}
+
+function requireAdmin(request: { auth?: { uid: string; token: Record<string, unknown> } | null }) {
+  if (!request.auth || !hasAdminAccess(request.auth)) throw new HttpsError('permission-denied', 'Acesso administrativo necessário.');
 }
 
 export const verifyEmployee = onCall({ cors: ['https://estoquearmazem.vercel.app'], maxInstances: 10 }, async (request) => {
@@ -64,20 +69,6 @@ export const verifyEmployee = onCall({ cors: ['https://estoquearmazem.vercel.app
   return { token };
 });
 
-export const ensureAdminRole = onCall({ cors: ['https://estoquearmazem.vercel.app'], maxInstances: 10 }, async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'Entre com sua conta administrativa.');
-  const provider = (request.auth.token.firebase as { sign_in_provider?: unknown } | undefined)?.sign_in_provider;
-  if (provider !== 'password' || request.auth.uid.startsWith('employee_')) {
-    throw new HttpsError('permission-denied', 'Acesso administrativo não autorizado.');
-  }
-
-  const auth = getAuth();
-  const user = await auth.getUser(request.auth.uid);
-  if (!user.email) throw new HttpsError('permission-denied', 'A conta administrativa precisa ter um e-mail.');
-  await auth.setCustomUserClaims(user.uid, { ...user.customClaims, role: 'admin' });
-  return { role: 'admin' as const };
-});
-
 export const searchItems = onCall({ maxInstances: 10 }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Entre no sistema para pesquisar.');
   const prefix = typeof request.data?.prefix === 'string' ? normalize(request.data.prefix).slice(0, 20) : '';
@@ -92,7 +83,7 @@ export const recordMovement = onCall({ maxInstances: 20 }, async (request) => {
   if (typeof itemId !== 'string' || !['entry', 'withdrawal'].includes(movementType) || !Number.isFinite(quantity) || quantity <= 0 || !validQuantity(quantity) || typeof idempotencyKey !== 'string' || !/^[0-9a-f-]{36}$/i.test(idempotencyKey)) {
     throw new HttpsError('invalid-argument', 'Dados da movimentação inválidos.');
   }
-  const isAdmin = request.auth.token.role === 'admin';
+  const isAdmin = hasAdminAccess(request.auth);
   const employeeId = typeof request.auth.token.employeeId === 'string' ? request.auth.token.employeeId : '';
   if (!isAdmin && (!employeeId || request.auth.uid !== `employee_${employeeId}`)) throw new HttpsError('permission-denied', 'Perfil sem permissão para movimentar.');
   const movementId = createHash('sha256').update(`${request.auth.uid}:${idempotencyKey}`).digest('hex');
