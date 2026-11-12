@@ -400,7 +400,8 @@
     const candidate = error as { message?: string; code?: string };
     const messages: Record<string, string> = {
       'auth/invalid-credential': 'E-mail ou senha incorretos.',
-      'auth/network-request-failed': 'Sem conexão com o servidor. Movimentações exigem conexão ativa.'
+      'auth/network-request-failed': 'Sem conexão com o servidor. Movimentações exigem conexão ativa.',
+      'permission-denied': 'O Firestore recusou o acesso. Publique as regras atualizadas e confirme que o administrador tem admins/{UID} com active: true.'
     };
     errorMessage = candidate.code && messages[candidate.code] ? messages[candidate.code] : candidate.message ?? 'Ocorreu um erro. Tente novamente.';
   }

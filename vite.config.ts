@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [
     svelte(),
     VitePWA({
+      injectRegister: false,
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       manifest: {

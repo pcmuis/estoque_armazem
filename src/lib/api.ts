@@ -83,7 +83,7 @@ export async function loadAccessProfile(user: User) {
   }
 
   const admin = await getDoc(doc(db, 'admins', user.uid));
-  if (!admin.exists() || admin.get('active') === false) {
+  if (!admin.exists() || admin.get('active') !== true) {
     throw new Error('Esta conta não está autorizada como administradora.');
   }
   return { role: 'admin' as const, employee: null };

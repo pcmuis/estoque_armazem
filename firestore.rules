@@ -128,7 +128,10 @@ service cloud.firestore {
     }
 
     match /stockMovements/{movementId} {
-      allow read: if isAdmin() || (isEmployee() && resource.data.employeeId == employeeId());
+      allow read: if isAdmin() || (isEmployee() && (
+        !exists(/databases/$(database)/documents/stockMovements/$(movementId))
+        || resource.data.employeeId == employeeId()
+      ));
       allow create: if isAdmin() || validEmployeeMovement(movementId);
       allow update, delete: if false;
     }

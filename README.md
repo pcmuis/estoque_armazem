@@ -17,10 +17,13 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...
 No Firebase Console, habilite **Authentication > Sign-in method > E-mail/senha** e crie o banco em **Firestore Database**. Depois, na raiz deste repositório, publique as regras e índices:
 
 ```sh
-firebase deploy --only firestore:rules,firestore:indexes --project estoque-armazem
+npx firebase-tools login
+npx firebase-tools deploy --only firestore:rules,firestore:indexes --project estoque-armazem
 ```
 
 O comando publica somente as regras e índices do Firestore; não publica nem executa Cloud Functions. Os índices compostos usados pelas consultas estão em `firestore.indexes.json`.
+
+O frontend e o arquivo `vercel.json` também precisam ser publicados no Vercel (por exemplo, enviando as alterações para a branch conectada ao projeto). O PWA atualizará as abas abertas ao detectar a nova versão; se uma aba ainda mostrar o painel antigo após a publicação, feche e reabra o site ou faça uma atualização forçada do navegador.
 
 ## Primeiro acesso administrativo
 
