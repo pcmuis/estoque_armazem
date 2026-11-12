@@ -33,8 +33,9 @@
   let email = $state('');
   let password = $state('');
   let busy = $state(false);
-  let authLoading = $state(false);
+  let authLoading = $state(true);
   let errorMessage = $state('');
+  let cloudFunctionConsoleUrl = $state('');
   let successMessage = $state('');
   let search = $state('');
   let locationFilter = $state('');
@@ -70,7 +71,10 @@
   let historyToDate = $state('');
 
   onMount(() => {
-    if (!auth) return;
+    if (!auth) {
+      authLoading = false;
+      return;
+    }
     return onAuthStateChanged(auth, async (currentUser) => {
     user = currentUser;
     if (!currentUser) {
@@ -374,6 +378,11 @@
 
   function showError(error: unknown) {
     const candidate = error as { message?: string; code?: string };
+    const isCloudFunctionError = candidate.code?.startsWith('functions/') === true;
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+    cloudFunctionConsoleUrl = isCloudFunctionError && projectId
+      ? `https://console.firebase.google.com/project/${encodeURIComponent(projectId)}/functions`
+      : '';
     const messages: Record<string, string> = {
       'functions/permission-denied': 'Acesso não autorizado. Confira se a matrícula está ativa ou se a conta tem permissão.',
       'functions/resource-exhausted': 'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
@@ -385,7 +394,7 @@
     errorMessage = candidate.code && messages[candidate.code] ? messages[candidate.code] : candidate.message ?? 'Ocorreu um erro. Tente novamente.';
   }
 
-  function clearMessages() { errorMessage = ''; successMessage = ''; }
+  function clearMessages() { errorMessage = ''; cloudFunctionConsoleUrl = ''; successMessage = ''; }
   function locationLabel(item: InventoryItem) {
     return item.rackNumber && item.shelfNumber ? `E-${item.rackNumber.padStart(2, '0')} / P-${item.shelfNumber.padStart(2, '0')}` : 'LOCALIZAÇÃO NÃO CADASTRADA';
   }
@@ -411,13 +420,28 @@
   let lowStockCount = $derived(dashboardSummary.lowStockCount);
 </script>
 
+{#snippet CloudFunctionHelp()}
+  {#if cloudFunctionConsoleUrl}
+    <a class="cloud-function-link" href={cloudFunctionConsoleUrl} target="_blank" rel="noreferrer">Abrir Cloud Functions no Firebase Console</a>
+  {/if}
+{/snippet}
+
 <svelte:head>
   <meta name="apple-mobile-web-app-title" content="Estoque" />
   <meta name="theme-color" content="#f3f5f2" />
   <title>Controle de Estoque</title>
 </svelte:head>
 
-{#if !user}
+{#if authLoading && !user}
+  <main class="entry-screen">
+    <section class="entry-content" role="status" aria-live="polite">
+      <div class="brand-mark"><Warehouse size={25} strokeWidth={1.8} /></div>
+      <p class="eyebrow">ARMAZÉM · CONTROLE INTERNO</p>
+      <h1>VERIFICANDO<br />ACESSO</h1>
+      <p class="entry-hint">Aguarde enquanto verificamos sua sessão.</p>
+    </section>
+  </main>
+{:else if !user}
   <main class="entry-screen">
     <button class="admin-shortcut" aria-label="Acesso administrativo" title="Acesso administrativo" onclick={() => { adminLogin = !adminLogin; clearMessages(); }}>
       {#if adminLogin}<ArrowLeft size={19} />{:else}<LockKeyhole size={19} />{/if}
@@ -444,6 +468,7 @@
         </form>
       {/if}
       {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
+      {#if errorMessage}{@render CloudFunctionHelp()}{/if}
       {#if successMessage}<p class="form-message success-message" role="status">{successMessage}</p>{/if}
       {#if !firebaseConfigured}<p class="form-message setup-message">Configure as variáveis Firebase do arquivo `.env` para conectar este sistema.</p>{/if}
       <p class="connection-note"><span></span> ACESSO RESTRITO A USUÁRIOS AUTORIZADOS</p>
@@ -467,6 +492,7 @@
         <div><p class="eyebrow">ARMAZÉM / ADMINISTRAÇÃO</p><h1>{page === 'overview' ? 'Visão geral' : page === 'items' ? 'Itens do estoque' : page === 'employees' ? 'Funcionários' : 'Movimentações'}</h1></div>
         <div class="user-chip"><ShieldCheck size={17} /><span>Administrador</span><button aria-label="Sair" onclick={logout}><LogOut size={17} /></button></div>
       </header>
+      {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span>{@render CloudFunctionHelp()}<button aria-label="Fechar aviso" onclick={() => { errorMessage = ''; cloudFunctionConsoleUrl = ''; }}><X size={17} /></button></div>{/if}
       {#if successMessage}<div class="inline-message success-message" role="status"><Check size={18} />{successMessage}<button aria-label="Fechar aviso" onclick={() => successMessage = ''}><X size={17} /></button></div>{/if}
 
       {#if page === 'overview'}
@@ -528,7 +554,7 @@
       <div class="stock-brand"><div class="brand-mark"><Warehouse size={21} /></div><div><p class="eyebrow">ARMAZÉM · ESTOQUE</p><strong>{selectedItem ? 'Detalhes do item' : 'Consulta de materiais'}</strong></div></div>
       <div class="employee-chip"><span>{employee?.name ?? 'Funcionário'} · {employee?.matricula}</span><button title="Sair ou trocar funcionário" aria-label="Sair ou trocar funcionário" onclick={logout}><LogOut size={18} /></button></div>
     </header>
-    {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} />{errorMessage}<button aria-label="Fechar aviso" onclick={() => errorMessage = ''}><X size={17} /></button></div>{/if}
+    {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span>{@render CloudFunctionHelp()}<button aria-label="Fechar aviso" onclick={() => { errorMessage = ''; cloudFunctionConsoleUrl = ''; }}><X size={17} /></button></div>{/if}
     {#if successMessage}<div class="inline-message success-message" role="status"><Check size={18} />{successMessage}<button aria-label="Fechar aviso" onclick={() => successMessage = ''}><X size={17} /></button></div>{/if}
     {#if selectedItem}
       <section class="detail-page">
@@ -578,6 +604,7 @@
         <p class="entry-hint">Aguarde enquanto confirmamos seu acesso.</p>
       {:else}
         <p class="form-message error-message" role="alert">{errorMessage || 'Não foi possível validar seu perfil. Tente novamente.'}</p>
+        {@render CloudFunctionHelp()}
         <button class="primary-button" onclick={logout}>VOLTAR AO LOGIN <span aria-hidden="true">↗</span></button>
       {/if}
     </section>
@@ -595,6 +622,7 @@
           {#if !itemDraft.customFields.length}<p class="form-hint">Nenhuma informação adicional.</p>{/if}
         </section>
         {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
+        {#if errorMessage}{@render CloudFunctionHelp()}{/if}
         <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => itemDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy}>{busy ? 'SALVANDO...' : 'SALVAR ITEM'} <Check size={17} /></button></div>
       </form>
     </dialog>
@@ -608,6 +636,7 @@
       <form class="dialog-form" onsubmit={submitEmployee}>
         <div class="form-grid"><label class="wide-field">Nome completo<input bind:value={employeeDraft.name} maxlength="120" required /></label><label class="wide-field">Matrícula<input bind:value={employeeDraft.matricula} maxlength="32" required /></label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.active} /> Acesso ativo</label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.canAdd} /> Pode adicionar materiais</label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.canWithdraw} /> Pode retirar materiais</label></div>
         {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
+        {#if errorMessage}{@render CloudFunctionHelp()}{/if}
         <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => employeeDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy}>{busy ? 'SALVANDO...' : 'SALVAR FUNCIONÁRIO'} <Check size={17} /></button></div>
       </form>
     </dialog>
@@ -623,6 +652,7 @@
         <div class="segmented"><button type="button" class:chosen={adminMovementType === 'withdrawal'} onclick={() => adminMovementType = 'withdrawal'}><Minus size={17} /> Retirar</button><button type="button" class:chosen={adminMovementType === 'entry'} onclick={() => adminMovementType = 'entry'}><Plus size={17} /> Adicionar</button></div>
         <div class="form-grid admin-movement-fields"><label>Quantidade<input type="number" min="0.001" step="0.001" bind:value={adminMovementQuantity} required /></label><label>Motivo<input bind:value={adminMovementReason} maxlength="250" placeholder="Motivo do ajuste" /></label></div>
         {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
+        {#if errorMessage}{@render CloudFunctionHelp()}{/if}
         <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => adminMovementDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy || (adminMovementType === 'withdrawal' && adminMovementQuantity > adminMovementItem.quantity)}>{busy ? 'REGISTRANDO...' : 'CONFIRMAR'} <Check size={17} /></button></div>
       </form>
     </dialog>
