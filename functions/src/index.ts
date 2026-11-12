@@ -64,6 +64,20 @@ export const verifyEmployee = onCall({ cors: ['https://estoquearmazem.vercel.app
   return { token };
 });
 
+export const ensureAdminRole = onCall({ maxInstances: 10 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Entre com sua conta administrativa.');
+  const provider = (request.auth.token.firebase as { sign_in_provider?: unknown } | undefined)?.sign_in_provider;
+  if (provider !== 'password' || request.auth.uid.startsWith('employee_')) {
+    throw new HttpsError('permission-denied', 'Acesso administrativo não autorizado.');
+  }
+
+  const auth = getAuth();
+  const user = await auth.getUser(request.auth.uid);
+  if (!user.email) throw new HttpsError('permission-denied', 'A conta administrativa precisa ter um e-mail.');
+  await auth.setCustomUserClaims(user.uid, { ...user.customClaims, role: 'admin' });
+  return { role: 'admin' as const };
+});
+
 export const searchItems = onCall({ maxInstances: 10 }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Entre no sistema para pesquisar.');
   const prefix = typeof request.data?.prefix === 'string' ? normalize(request.data.prefix).slice(0, 20) : '';

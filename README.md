@@ -66,13 +66,9 @@ firebase deploy --only firestore:rules,firestore:indexes
 
 ## Primeiro administrador
 
-Crie a conta no Firebase Authentication. Em um ambiente confiável com Application Default Credentials autorizadas a consultar e atualizar usuários do Firebase Authentication, atribua a custom claim:
+Crie a conta administrativa no Firebase Authentication e use o acesso administrativo do sistema com esse e-mail e senha. No primeiro login, o backend valida a sessão de e-mail/senha e atribui automaticamente a permissão administrativa necessária às operações protegidas. Não é necessário atribuir custom claims manualmente.
 
-```
-npm --prefix functions run set-admin-claim -- estoque-armazem admin@empresa.com
-```
-
-O usuário deve sair e entrar novamente para atualizar o token. Não atribua essa claim a partir do navegador ou de uma função pública.
+Contas de funcionários continuam sendo autenticadas pelo fluxo de matrícula e não recebem acesso administrativo.
 
 ## App Check e acesso web
 

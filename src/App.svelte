@@ -9,7 +9,7 @@
   import type { QueryDocumentSnapshot } from 'firebase/firestore';
   import { auth, db, firebaseConfigured } from './lib/firebase';
   import {
-    deleteItemImage, getDashboardSummary, listItems, listMovements, loadAllAdminItems, loadEmployees, passwordReset, recordMovement,
+    deleteItemImage, ensureAdminRole, getDashboardSummary, listItems, listMovements, loadAllAdminItems, loadEmployees, passwordReset, recordMovement,
     saveEmployee, saveItem, signInAdmin, signInEmployee, signOutUser, uploadOptimizedImage
   } from './lib/api';
   import type { CustomField, Employee, InventoryItem, StockMovement } from './lib/types';
@@ -79,7 +79,11 @@
       return;
     }
     try {
-      const token = await currentUser.getIdTokenResult();
+      let token = await currentUser.getIdTokenResult();
+      if (token.claims.role !== 'admin' && !currentUser.uid.startsWith('employee_')) {
+        await ensureAdminRole();
+        token = await currentUser.getIdTokenResult(true);
+      }
       userRole = token.claims.role === 'admin' ? 'admin' : token.claims.role === 'employee' ? 'employee' : null;
       employee = userRole === 'employee' ? {
         id: String(token.claims.employeeId ?? ''), name: String(token.claims.name ?? 'Funcionário'),

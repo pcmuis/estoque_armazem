@@ -15,12 +15,12 @@ export async function signInEmployee(matricula: string) {
 export async function signInAdmin(email: string, password: string) {
   const { auth } = getFirebaseServices();
   const credential = await signInWithEmailAndPassword(auth, email, password);
-  const token = await credential.user.getIdTokenResult(true);
-  if (token.claims.role !== 'admin') {
-    await signOut(auth);
-    throw new Error('Login validado, mas esta conta não tem o perfil administrativo. Solicite ao administrador a atribuição da permissão.');
-  }
   return credential.user;
+}
+
+export async function ensureAdminRole() {
+  const result = await call<Record<string, never>, { role: 'admin' }>('ensureAdminRole')({});
+  return result.data;
 }
 
 export async function listItems(search: string, cursor?: QueryDocumentSnapshot) {
