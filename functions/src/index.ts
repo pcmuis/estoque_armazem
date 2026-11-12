@@ -64,7 +64,7 @@ export const verifyEmployee = onCall({ cors: ['https://estoquearmazem.vercel.app
   return { token };
 });
 
-export const ensureAdminRole = onCall({ maxInstances: 10 }, async (request) => {
+export const ensureAdminRole = onCall({ cors: ['https://estoquearmazem.vercel.app'], maxInstances: 10 }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Entre com sua conta administrativa.');
   const provider = (request.auth.token.firebase as { sign_in_provider?: unknown } | undefined)?.sign_in_provider;
   if (provider !== 'password' || request.auth.uid.startsWith('employee_')) {

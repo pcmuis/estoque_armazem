@@ -33,6 +33,7 @@
   let email = $state('');
   let password = $state('');
   let busy = $state(false);
+  let authLoading = $state(false);
   let errorMessage = $state('');
   let successMessage = $state('');
   let search = $state('');
@@ -76,8 +77,11 @@
       userRole = null;
       employee = null;
       items = [];
+      authLoading = false;
       return;
     }
+    authLoading = true;
+    errorMessage = '';
     try {
       let token = await currentUser.getIdTokenResult();
       if (token.claims.role !== 'admin' && !currentUser.uid.startsWith('employee_')) {
@@ -97,6 +101,8 @@
       if (userRole === 'admin') await loadAdminData();
     } catch (error) {
       showError(error);
+    } finally {
+      authLoading = false;
     }
     });
   });
@@ -408,8 +414,6 @@
 </script>
 
 <svelte:head>
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Estoque" />
   <meta name="theme-color" content="#f3f5f2" />
   <title>Controle de Estoque</title>
@@ -565,6 +569,20 @@
         {#if hasMoreItems && !search.trim()}<button class="load-more" onclick={loadMoreItems} disabled={loadingMore}>{loadingMore ? 'CARREGANDO...' : 'CARREGAR MAIS ITENS'} <ChevronDown size={18} /></button>{/if}
       </section>
     {/if}
+  </main>
+{:else}
+  <main class="entry-screen">
+    <section class="entry-content" role={authLoading ? 'status' : undefined}>
+      <div class="brand-mark"><Warehouse size={25} strokeWidth={1.8} /></div>
+      <p class="eyebrow">ARMAZÉM · CONTROLE INTERNO</p>
+      <h1>{authLoading ? 'VALIDANDO\nACESSO' : 'NÃO FOI POSSÍVEL\nABRIR O PAINEL'}</h1>
+      {#if authLoading}
+        <p class="entry-hint">Aguarde enquanto confirmamos seu acesso.</p>
+      {:else}
+        <p class="form-message error-message" role="alert">{errorMessage || 'Não foi possível validar seu perfil. Tente novamente.'}</p>
+        <button class="primary-button" onclick={logout}>VOLTAR AO LOGIN <span aria-hidden="true">↗</span></button>
+      {/if}
+    </section>
   </main>
 {/if}
 
