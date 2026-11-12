@@ -30,6 +30,8 @@ export type Employee = {
   active: boolean;
   canAdd: boolean;
   canWithdraw: boolean;
+  authUid?: string;
+  loginEmail?: string;
 };
 
 export type StockMovement = {

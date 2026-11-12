@@ -9,7 +9,7 @@
   import type { QueryDocumentSnapshot } from 'firebase/firestore';
   import { auth, db, firebaseConfigured } from './lib/firebase';
   import {
-    deleteItemImage, getDashboardSummary, listItems, listMovements, loadAllAdminItems, loadEmployees, passwordReset, recordMovement,
+    getDashboardSummary, listItems, listMovements, loadAccessProfile, loadAllAdminItems, loadEmployees, passwordReset, recordMovement,
     saveEmployee, saveItem, signInAdmin, signInEmployee, signOutUser, uploadOptimizedImage
   } from './lib/api';
   import type { CustomField, Employee, InventoryItem, StockMovement } from './lib/types';
@@ -30,12 +30,12 @@
   let page = $state<Page>('overview');
   let adminLogin = $state(false);
   let matricula = $state('');
+  let employeePassword = $state('');
   let email = $state('');
   let password = $state('');
   let busy = $state(false);
   let authLoading = $state(true);
   let errorMessage = $state('');
-  let cloudFunctionConsoleUrl = $state('');
   let successMessage = $state('');
   let search = $state('');
   let locationFilter = $state('');
@@ -46,6 +46,9 @@
   let adminItems = $state<InventoryItem[]>([]);
   let employees = $state<Employee[]>([]);
   let movements = $state<StockMovement[]>([]);
+  let movementCursor = $state<QueryDocumentSnapshot | undefined>();
+  let hasMoreMovements = $state(false);
+  let loadingMoreMovements = $state(false);
   let dashboardSummary = $state({ itemCount: 0, activeItemCount: 0, stockOutCount: 0, lowStockCount: 0, movementCount: 0, todayEntries: 0, todayWithdrawals: 0 });
   let selectedItem = $state<InventoryItem | null>(null);
   let movementType = $state<'entry' | 'withdrawal'>('withdrawal');
@@ -62,8 +65,9 @@
   let adminMovementReason = $state('');
   let itemDraft = $state<ItemDraft>(emptyItem());
   let itemDraftId = $state('');
-  let employeeDraft = $state({ name: '', matricula: '', active: true, canAdd: true, canWithdraw: true });
+  let employeeDraft = $state({ name: '', matricula: '', password: '', active: true, canAdd: true, canWithdraw: true });
   let employeeDraftId = $state('');
+  let employeeNeedsAccount = $state(true);
   let chosenImage = $state<File | null>(null);
   let historySearch = $state('');
   let movementTypeFilter = $state<'all' | 'entry' | 'withdrawal'>('all');
@@ -77,6 +81,8 @@
     }
     return onAuthStateChanged(auth, async (currentUser) => {
     user = currentUser;
+    userRole = null;
+    employee = null;
     if (!currentUser) {
       userRole = null;
       employee = null;
@@ -86,22 +92,18 @@
     }
     authLoading = true;
     errorMessage = '';
+    let profile: Awaited<ReturnType<typeof loadAccessProfile>>;
     try {
-      const token = await currentUser.getIdTokenResult();
-      userRole = token.claims.role === 'admin' || token.signInProvider === 'password'
-        ? 'admin'
-        : token.claims.role === 'employee' ? 'employee' : null;
-      employee = userRole === 'employee' ? {
-        id: String(token.claims.employeeId ?? ''),
-        name: String(token.claims.name ?? 'Funcionário'),
-        matricula: String(token.claims.matricula ?? ''),
-        canAdd: token.claims.canAdd === true,
-        canWithdraw: token.claims.canWithdraw === true
-      } : null;
-      if (!userRole) {
-        await signOutUser();
-        throw new Error('Esta conta não possui um perfil autorizado.');
-      }
+      profile = await loadAccessProfile(currentUser);
+    } catch (error) {
+      showError(error);
+      try { await signOutUser(); }
+      finally { authLoading = false; }
+      return;
+    }
+    try {
+      userRole = profile.role;
+      employee = profile.role === 'employee' ? profile.employee : null;
       if (employee?.canAdd && !employee.canWithdraw) movementType = 'entry';
       else if (employee?.canWithdraw) movementType = 'withdrawal';
       await refreshItems();
@@ -177,7 +179,9 @@
       const [nextItems, nextEmployees, nextMovements, summary] = await Promise.all([loadAllAdminItems(), loadEmployees(), listMovements(), getDashboardSummary()]);
       adminItems = nextItems;
       employees = nextEmployees;
-      movements = nextMovements;
+      movements = nextMovements.movements;
+      movementCursor = nextMovements.cursor;
+      hasMoreMovements = nextMovements.movements.length === 100;
       dashboardSummary = summary.data;
       items = search.trim() ? filterItems(adminItems, search) : adminItems.filter((item) => item.active);
     } catch (error) {
@@ -190,7 +194,25 @@
   }
 
   async function loadMovementPage() {
-    try { movements = await listMovements(); } catch (error) { showError(error); }
+    movementCursor = undefined;
+    try {
+      const result = await listMovements();
+      movements = result.movements;
+      movementCursor = result.cursor;
+      hasMoreMovements = result.movements.length === 100;
+    } catch (error) { showError(error); }
+  }
+
+  async function loadMoreMovements() {
+    if (!movementCursor || loadingMoreMovements) return;
+    loadingMoreMovements = true;
+    try {
+      const result = await listMovements(undefined, movementCursor);
+      movements = [...movements, ...result.movements];
+      movementCursor = result.cursor;
+      hasMoreMovements = result.movements.length === 100;
+    } catch (error) { showError(error); }
+    finally { loadingMoreMovements = false; }
   }
 
   async function submitEmployeeAccess(event: SubmitEvent) {
@@ -198,8 +220,9 @@
     busy = true;
     clearMessages();
     try {
-      await signInEmployee(matricula.trim());
+      await signInEmployee(matricula.trim(), employeePassword);
       matricula = '';
+      employeePassword = '';
     } catch (error) { showError(error); }
     finally { busy = false; }
   }
@@ -296,17 +319,12 @@
     }
     busy = true;
     try {
-      const previousImageKey = itemDraft.imageObjectKey;
       if (chosenImage) {
         const image = await uploadOptimizedImage(chosenImage, itemDraftId);
         itemDraft.imageUrl = image.imageUrl;
         itemDraft.imageObjectKey = image.imageObjectKey;
       }
       await saveItem({ ...itemDraft, itemId: itemDraftId });
-      if (chosenImage && previousImageKey) {
-        try { await deleteItemImage(itemDraftId, previousImageKey); }
-        catch { successMessage = 'Item salvo; a imagem anterior precisa ser removida manualmente do bucket.'; }
-      }
       itemDialog = false;
       if (!successMessage) successMessage = 'Cadastro do item salvo.';
       await loadAdminData();
@@ -315,26 +333,23 @@
   }
 
   async function removeItemImage() {
-    if (!itemDraft.imageObjectKey) { itemDraft.imageUrl = ''; chosenImage = null; return; }
-    busy = true;
-    try {
-      await deleteItemImage(itemDraftId, itemDraft.imageObjectKey);
-      itemDraft.imageUrl = '';
-      itemDraft.imageObjectKey = '';
-      chosenImage = null;
-    } catch (error) { showError(error); }
-    finally { busy = false; }
+    itemDraft.imageUrl = '';
+    itemDraft.imageObjectKey = '';
+    chosenImage = null;
   }
 
   function openNewEmployee() {
-    employeeDraft = { name: '', matricula: '', active: true, canAdd: true, canWithdraw: true };
+    employeeDraft = { name: '', matricula: '', password: '', active: true, canAdd: true, canWithdraw: true };
     employeeDraftId = '';
+    employeeNeedsAccount = true;
     employeeDialog = true;
   }
 
   function openEditEmployee(person: Employee) {
-    employeeDraft = { name: person.name, matricula: person.matricula, active: person.active, canAdd: person.canAdd, canWithdraw: person.canWithdraw };
+    employeeDraft = { name: person.name, matricula: person.matricula, password: '', active: person.active, canAdd: person.canAdd, canWithdraw: person.canWithdraw };
     employeeDraftId = person.id;
+    const expectedEmail = `${person.matricula.toLowerCase()}@staff.estoquearmazem.invalid`;
+    employeeNeedsAccount = person.loginEmail !== expectedEmail;
     employeeDialog = true;
   }
 
@@ -383,23 +398,14 @@
 
   function showError(error: unknown) {
     const candidate = error as { message?: string; code?: string };
-    const isCloudFunctionError = candidate.code?.startsWith('functions/') === true;
-    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-    cloudFunctionConsoleUrl = isCloudFunctionError && projectId
-      ? `https://console.firebase.google.com/project/${encodeURIComponent(projectId)}/functions`
-      : '';
     const messages: Record<string, string> = {
-      'functions/permission-denied': 'Acesso não autorizado. Confira se a matrícula está ativa ou se a conta tem permissão.',
-      'functions/resource-exhausted': 'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
-      'functions/failed-precondition': 'A operação não pode ser concluída com o saldo atual.',
-      'functions/already-exists': 'Esse código ou matrícula já está cadastrado.',
       'auth/invalid-credential': 'E-mail ou senha incorretos.',
       'auth/network-request-failed': 'Sem conexão com o servidor. Movimentações exigem conexão ativa.'
     };
     errorMessage = candidate.code && messages[candidate.code] ? messages[candidate.code] : candidate.message ?? 'Ocorreu um erro. Tente novamente.';
   }
 
-  function clearMessages() { errorMessage = ''; cloudFunctionConsoleUrl = ''; successMessage = ''; }
+  function clearMessages() { errorMessage = ''; successMessage = ''; }
   function locationLabel(item: InventoryItem) {
     return item.rackNumber && item.shelfNumber ? `E-${item.rackNumber.padStart(2, '0')} / P-${item.shelfNumber.padStart(2, '0')}` : 'LOCALIZAÇÃO NÃO CADASTRADA';
   }
@@ -424,12 +430,6 @@
   let stockOutCount = $derived(dashboardSummary.stockOutCount);
   let lowStockCount = $derived(dashboardSummary.lowStockCount);
 </script>
-
-{#snippet CloudFunctionHelp()}
-  {#if cloudFunctionConsoleUrl}
-    <a class="cloud-function-link" href={cloudFunctionConsoleUrl} target="_blank" rel="noreferrer">Abrir Cloud Functions no Firebase Console</a>
-  {/if}
-{/snippet}
 
 <svelte:head>
   <meta name="apple-mobile-web-app-title" content="Estoque" />
@@ -469,11 +469,12 @@
         <form class="access-form" onsubmit={submitEmployeeAccess}>
           <label for="matricula">MATRÍCULA</label>
           <div class="input-wrap"><Search size={19} aria-hidden="true" /><input id="matricula" bind:value={matricula} inputmode="text" autocomplete="off" placeholder="Digite sua matrícula" required /></div>
+          <label for="employee-password" class="second-label">SENHA</label>
+          <div class="input-wrap"><LockKeyhole size={18} /><input id="employee-password" type="password" bind:value={employeePassword} autocomplete="current-password" placeholder="Senha do mantenedor" required /></div>
           <button class="primary-button" type="submit" disabled={busy || !matricula.trim()}>{busy ? 'VALIDANDO...' : 'ACESSAR'} <span aria-hidden="true">↗</span></button>
         </form>
       {/if}
       {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
-      {#if errorMessage}{@render CloudFunctionHelp()}{/if}
       {#if successMessage}<p class="form-message success-message" role="status">{successMessage}</p>{/if}
       {#if !firebaseConfigured}<p class="form-message setup-message">Configure as variáveis Firebase do arquivo `.env` para conectar este sistema.</p>{/if}
       <p class="connection-note"><span></span> ACESSO RESTRITO A USUÁRIOS AUTORIZADOS</p>
@@ -497,7 +498,7 @@
         <div><p class="eyebrow">ARMAZÉM / ADMINISTRAÇÃO</p><h1>{page === 'overview' ? 'Visão geral' : page === 'items' ? 'Itens do estoque' : page === 'employees' ? 'Funcionários' : 'Movimentações'}</h1></div>
         <div class="user-chip"><ShieldCheck size={17} /><span>Administrador</span><button aria-label="Sair" onclick={logout}><LogOut size={17} /></button></div>
       </header>
-      {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span>{@render CloudFunctionHelp()}<button aria-label="Fechar aviso" onclick={() => { errorMessage = ''; cloudFunctionConsoleUrl = ''; }}><X size={17} /></button></div>{/if}
+      {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span><button aria-label="Fechar aviso" onclick={() => errorMessage = ''}><X size={17} /></button></div>{/if}
       {#if successMessage}<div class="inline-message success-message" role="status"><Check size={18} />{successMessage}<button aria-label="Fechar aviso" onclick={() => successMessage = ''}><X size={17} /></button></div>{/if}
 
       {#if page === 'overview'}
@@ -549,6 +550,7 @@
           <div class="section-heading"><div><p class="eyebrow">AUDITORIA</p><h2>Histórico imutável</h2></div></div>
           <div class="toolbar movement-filters"><div class="search-box"><Search size={19} /><input bind:value={historySearch} placeholder="Filtrar funcionário, matrícula, item ou código" /></div><select aria-label="Tipo de movimentação" bind:value={movementTypeFilter}><option value="all">Todos os tipos</option><option value="entry">Entradas</option><option value="withdrawal">Retiradas</option></select><label class="date-filter">DE<input type="date" bind:value={historyFromDate} /></label><label class="date-filter">ATÉ<input type="date" bind:value={historyToDate} /></label><button class="quiet-button" onclick={loadMovementPage}>Atualizar <ChevronDown size={16} /></button></div>
           {#if filteredMovements.length}{@render MovementList(filteredMovements)}{:else}<p class="empty-state">Nenhuma movimentação corresponde ao filtro.</p>{/if}
+          {#if hasMoreMovements}<button class="load-more" onclick={loadMoreMovements} disabled={loadingMoreMovements}>{loadingMoreMovements ? 'CARREGANDO...' : 'CARREGAR MAIS MOVIMENTAÇÕES'} <ChevronDown size={18} /></button>{/if}
         </section>
       {/if}
     </section>
@@ -559,7 +561,7 @@
       <div class="stock-brand"><div class="brand-mark"><Warehouse size={21} /></div><div><p class="eyebrow">ARMAZÉM · ESTOQUE</p><strong>{selectedItem ? 'Detalhes do item' : 'Consulta de materiais'}</strong></div></div>
       <div class="employee-chip"><span>{employee?.name ?? 'Funcionário'} · {employee?.matricula}</span><button title="Sair ou trocar funcionário" aria-label="Sair ou trocar funcionário" onclick={logout}><LogOut size={18} /></button></div>
     </header>
-    {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span>{@render CloudFunctionHelp()}<button aria-label="Fechar aviso" onclick={() => { errorMessage = ''; cloudFunctionConsoleUrl = ''; }}><X size={17} /></button></div>{/if}
+    {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span><button aria-label="Fechar aviso" onclick={() => errorMessage = ''}><X size={17} /></button></div>{/if}
     {#if successMessage}<div class="inline-message success-message" role="status"><Check size={18} />{successMessage}<button aria-label="Fechar aviso" onclick={() => successMessage = ''}><X size={17} /></button></div>{/if}
     {#if selectedItem}
       <section class="detail-page">
@@ -613,7 +615,6 @@
         <p class="entry-hint">Aguarde enquanto confirmamos seu acesso.</p>
       {:else}
         <p class="form-message error-message" role="alert">{errorMessage || 'Não foi possível validar seu perfil. Tente novamente.'}</p>
-        {@render CloudFunctionHelp()}
         <button class="primary-button" onclick={logout}>VOLTAR AO LOGIN <span aria-hidden="true">↗</span></button>
       {/if}
     </section>
@@ -631,7 +632,6 @@
           {#if !itemDraft.customFields.length}<p class="form-hint">Nenhuma informação adicional.</p>{/if}
         </section>
         {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
-        {#if errorMessage}{@render CloudFunctionHelp()}{/if}
         <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => itemDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy}>{busy ? 'SALVANDO...' : 'SALVAR ITEM'} <Check size={17} /></button></div>
       </form>
     </dialog>
@@ -643,9 +643,10 @@
     <dialog open class="edit-dialog employee-dialog" aria-labelledby="employee-dialog-title">
       <header class="dialog-header"><div><p class="eyebrow">ACESSO INTERNO</p><h2 id="employee-dialog-title">{employeeDraftId ? 'Editar funcionário' : 'Novo funcionário'}</h2></div><button class="icon-action" aria-label="Fechar" onclick={() => employeeDialog = false}><X size={20} /></button></header>
       <form class="dialog-form" onsubmit={submitEmployee}>
-        <div class="form-grid"><label class="wide-field">Nome completo<input bind:value={employeeDraft.name} maxlength="120" required /></label><label class="wide-field">Matrícula<input bind:value={employeeDraft.matricula} maxlength="32" required /></label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.active} /> Acesso ativo</label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.canAdd} /> Pode adicionar materiais</label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.canWithdraw} /> Pode retirar materiais</label></div>
+        <div class="form-grid"><label class="wide-field">Nome completo<input bind:value={employeeDraft.name} maxlength="120" required /></label><label class="wide-field">Matrícula<input bind:value={employeeDraft.matricula} maxlength="32" disabled={!employeeNeedsAccount} required /></label>
+          {#if employeeNeedsAccount}<label class="wide-field">Senha inicial do mantenedor<input type="password" bind:value={employeeDraft.password} minlength="6" autocomplete="new-password" required /><span class="form-hint">Necessária para criar o acesso deste mantenedor. Ele entrará com matrícula e senha.</span></label>{/if}
+          <label class="check-label"><input type="checkbox" bind:checked={employeeDraft.active} /> Acesso ativo</label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.canAdd} /> Pode adicionar materiais</label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.canWithdraw} /> Pode retirar materiais</label></div>
         {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
-        {#if errorMessage}{@render CloudFunctionHelp()}{/if}
         <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => employeeDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy}>{busy ? 'SALVANDO...' : 'SALVAR FUNCIONÁRIO'} <Check size={17} /></button></div>
       </form>
     </dialog>
@@ -661,7 +662,6 @@
         <div class="segmented"><button type="button" class:chosen={adminMovementType === 'withdrawal'} onclick={() => adminMovementType = 'withdrawal'}><Minus size={17} /> Retirar</button><button type="button" class:chosen={adminMovementType === 'entry'} onclick={() => adminMovementType = 'entry'}><Plus size={17} /> Adicionar</button></div>
         <div class="form-grid admin-movement-fields"><label>Quantidade<input type="number" min="0.001" step="0.001" bind:value={adminMovementQuantity} required /></label><label>Motivo<input bind:value={adminMovementReason} maxlength="250" placeholder="Motivo do ajuste" /></label></div>
         {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
-        {#if errorMessage}{@render CloudFunctionHelp()}{/if}
         <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => adminMovementDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy || (adminMovementType === 'withdrawal' && adminMovementQuantity > adminMovementItem.quantity)}>{busy ? 'REGISTRANDO...' : 'CONFIRMAR'} <Check size={17} /></button></div>
       </form>
     </dialog>

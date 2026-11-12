@@ -1,42 +1,159 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function isAdmin() {
-      return signedIn() && (
-        request.auth.token.role == 'admin' ||
-        request.auth.token.firebase.sign_in_provider == 'password'
-      );
+    function signedIn() {
+      return request.auth != null;
     }
-    function isEmployee() { return signedIn() && request.auth.token.role == 'employee'; }
+
+    function adminPath() {
+      return /databases/$(database)/documents/admins/$(request.auth.uid);
+    }
+
+    function isAdmin() {
+      return signedIn() && exists(adminPath()) && get(adminPath()).data.active == true;
+    }
+
+    function employeeAuthPath() {
+      return /databases/$(database)/documents/employeeAuth/$(request.auth.uid);
+    }
+
+    function employeeId() {
+      return get(employeeAuthPath()).data.employeeId;
+    }
+
+    function employeePath() {
+      return /databases/$(database)/documents/employees/$(employeeId());
+    }
+
+    function isEmployee() {
+      return signedIn()
+        && request.auth.token.email.matches('.*@staff\\.estoquearmazem\\.invalid$')
+        && exists(employeeAuthPath())
+        && get(employeeAuthPath()).data.active == true
+        && exists(employeePath())
+        && get(employeePath()).data.active == true
+        && get(employeePath()).data.authUid == request.auth.uid
+        && get(employeePath()).data.loginEmail == request.auth.token.email;
+    }
+
+    function employeeCanMove(movementType) {
+      return isEmployee()
+        && ((movementType == 'entry' && get(employeePath()).data.canAdd == true)
+          || (movementType == 'withdrawal' && get(employeePath()).data.canWithdraw == true));
+    }
+
+    function validEmployeeMovement(movementId) {
+      let movement = request.resource.data;
+      let itemPath = /databases/$(database)/documents/items/$(movement.itemId);
+      let itemBefore = get(itemPath).data;
+      let itemAfter = getAfter(itemPath).data;
+      let employee = get(employeePath()).data;
+      return isEmployee()
+        && movement.keys().hasOnly([
+          'itemId', 'itemNameSnapshot', 'itemCode', 'employeeId', 'employeeNameSnapshot',
+          'matriculaSnapshot', 'movementType', 'quantity', 'quantityBefore', 'quantityAfter',
+          'reason', 'createdAt', 'idempotencyKey'
+        ])
+        && employeeCanMove(movement.movementType)
+        && movement.employeeId == employeeId()
+        && movement.employeeNameSnapshot == employee.name
+        && movement.matriculaSnapshot == employee.matricula
+        && movement.itemId is string
+        && itemBefore.active == true
+        && movement.itemNameSnapshot == itemBefore.name
+        && movement.itemCode == itemBefore.code
+        && movement.quantity is number
+        && movement.quantity > 0
+        && movement.quantity <= 1000000000
+        && movement.quantityBefore == itemBefore.quantity
+        && movement.quantityAfter == itemAfter.quantity
+        && movement.reason is string
+        && movement.reason.size() <= 250
+        && movement.createdAt == request.time
+        && itemAfter.lastMovementId == movementId
+        && ((movement.movementType == 'entry'
+            && movement.quantityAfter == movement.quantityBefore + movement.quantity)
+          || (movement.movementType == 'withdrawal'
+            && movement.quantityBefore >= movement.quantity
+            && movement.quantityAfter == movement.quantityBefore - movement.quantity));
+    }
+
+    function validEmployeeStockUpdate(itemId) {
+      let movementId = request.resource.data.lastMovementId;
+      let movementPath = /databases/$(database)/documents/stockMovements/$(movementId);
+      let movement = getAfter(movementPath).data;
+      let quantity = request.resource.data.quantity;
+      return isEmployee()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['quantity', 'stockStatus', 'updatedAt', 'lastMovementId'])
+        && existsAfter(movementPath)
+        && movement.itemId == itemId
+        && movement.employeeId == employeeId()
+        && movement.quantityBefore == resource.data.quantity
+        && movement.quantityAfter == quantity
+        && request.resource.data.lastMovementId != resource.data.lastMovementId
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.stockStatus
+          == (quantity <= 0 ? 'empty' : quantity <= resource.data.minimumStock ? 'low' : 'normal');
+    }
+
+    match /admins/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if false;
+    }
 
     match /items/{itemId} {
-      allow read: if signedIn() && (isAdmin() || resource.data.active == true);
-      allow write: if false;
+      allow read: if isAdmin() || (isEmployee() && resource.data.active == true);
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || validEmployeeStockUpdate(itemId);
     }
+
     match /employees/{employeeId} {
-      allow read: if isAdmin();
-      allow write: if false;
+      allow read: if isAdmin()
+        || (signedIn() && exists(employeeAuthPath()) && get(employeeAuthPath()).data.employeeId == employeeId);
+      allow write: if isAdmin();
     }
-    match /employeeLookup/{matricula} { allow read, write: if false; }
-    match /itemCodes/{code} { allow read, write: if false; }
+
+    match /employeeAuth/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow write: if isAdmin();
+    }
+
+    match /employeeLookup/{matricula} {
+      allow read, write: if isAdmin();
+    }
+
+    match /itemCodes/{code} {
+      allow read, write: if isAdmin();
+    }
+
     match /stockMovements/{movementId} {
-      allow read: if isAdmin() || (isEmployee() && resource.data.employeeId == request.auth.token.employeeId);
-      allow write: if false;
+      allow read: if isAdmin() || (isEmployee() && resource.data.employeeId == employeeId());
+      allow create: if isAdmin() || validEmployeeMovement(movementId);
+      allow update, delete: if false;
     }
+
     match /locations/{locationId} {
       allow read: if signedIn();
-      allow write: if false;
+      allow write: if isAdmin();
     }
+
     match /machineAssets/{assetId} {
       allow read: if signedIn();
-      allow write: if false;
+      allow write: if isAdmin();
     }
+
     match /settings/{settingId} {
       allow read: if isAdmin();
-      allow write: if false;
+      allow write: if isAdmin();
     }
-    match /authLimits/{limitId} { allow read, write: if false; }
-    match /{document=**} { allow read, write: if false; }
+
+    match /authLimits/{limitId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
