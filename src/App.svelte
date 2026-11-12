@@ -69,6 +69,7 @@
   let adminMovementReason = $state('');
   let itemDraft = $state<ItemDraft>(emptyItem());
   let itemDraftId = $state('');
+  let itemIsEditing = $state(false);
   let employeeDraft = $state({ name: '', matricula: '', password: '', active: true, canAdd: true, canWithdraw: true });
   let employeeDraftId = $state('');
   let employeeNeedsAccount = $state(true);
@@ -295,6 +296,7 @@
   function openNewItem() {
     itemDraft = emptyItem();
     itemDraftId = crypto.randomUUID();
+    itemIsEditing = false;
     chosenImage = null;
     itemDialog = true;
   }
@@ -308,6 +310,7 @@
       customFields: item.customFields.map((field) => ({ ...field })), active: item.active
     };
     itemDraftId = item.id;
+    itemIsEditing = true;
     chosenImage = null;
     selectedItem = null;
     itemDialog = true;
@@ -332,7 +335,7 @@
         itemDraft.imageUrl = image.imageUrl;
         itemDraft.imageObjectKey = image.imageObjectKey;
       }
-      await saveItem({ ...itemDraft, itemId: itemDraftId });
+      await saveItem({ ...itemDraft, itemId: itemDraftId, isUpdate: itemIsEditing });
       itemDialog = false;
       if (!successMessage) successMessage = 'Cadastro do item salvo.';
       await loadAdminData();
@@ -711,7 +714,7 @@
 {#if itemDialog}
   <div class="dialog-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) itemDialog = false; }}>
     <dialog open class="edit-dialog" aria-labelledby="item-dialog-title">
-      <header class="dialog-header"><div><p class="eyebrow">CATÁLOGO DE ESTOQUE</p><h2 id="item-dialog-title">{itemDraft.name ? 'Editar item' : 'Novo item'}</h2></div><button class="icon-action" aria-label="Fechar" onclick={() => itemDialog = false}><X size={20} /></button></header>
+      <header class="dialog-header"><div><p class="eyebrow">CATÁLOGO DE ESTOQUE</p><h2 id="item-dialog-title">{itemIsEditing ? 'Editar item' : 'Novo item'}</h2></div><button class="icon-action" aria-label="Fechar" onclick={() => itemDialog = false}><X size={20} /></button></header>
       <form class="dialog-form" onsubmit={submitItem}>
         <div class="form-grid"><label>Nome do item<input bind:value={itemDraft.name} maxlength="120" required /></label><label>Código único<input bind:value={itemDraft.code} maxlength="64" required /></label><label>Categoria<input bind:value={itemDraft.category} maxlength="80" /></label><label>Tipo<select bind:value={itemDraft.itemType}><option value="piece">Peça</option><option value="component">Componente</option><option value="tool">Ferramenta</option><option value="machine">Máquina</option></select></label><label>Controle<select bind:value={itemDraft.trackingMode}><option value="quantity">Quantidade</option><option value="asset">Individual (série/patrimônio)</option></select></label><label>Unidade<input bind:value={itemDraft.unit} maxlength="20" required /></label><label>Quantidade inicial<input type="number" min="0" step="0.001" bind:value={itemDraft.quantity} required disabled={!!adminItems.find((item) => item.id === itemDraftId)} /></label><label>Estoque mínimo<input type="number" min="0" step="0.001" bind:value={itemDraft.minimumStock} required /></label><label>Estante<input bind:value={itemDraft.rackNumber} maxlength="20" /></label><label>Prateleira<input bind:value={itemDraft.shelfNumber} maxlength="20" /></label><label>Localização complementar<input bind:value={itemDraft.locationNote} maxlength="100" /></label><label class="wide-field">Descrição<textarea bind:value={itemDraft.description} maxlength="2000" rows="3"></textarea></label><label class="wide-field upload-control"><span>Fotografia do item</span><span class="upload-box"><Upload size={19} />{chosenImage?.name ?? (itemDraft.imageUrl ? 'Substituir fotografia' : 'Selecionar imagem')}<input type="file" accept="image/*" onchange={(event) => chosenImage = event.currentTarget.files?.[0] ?? null} /></span>{#if itemDraft.imageUrl}<div class="image-actions"><img class="upload-preview" src={itemDraft.imageUrl} alt="Prévia do item" /><button type="button" class="remove-image" onclick={removeItemImage} disabled={busy}><Trash2 size={16} /> Excluir fotografia</button></div>{/if}</label><label class="check-label"><input type="checkbox" bind:checked={itemDraft.active} /> Item ativo</label></div>
         <section class="custom-editor"><div class="section-heading"><div><p class="eyebrow">FLEXÍVEL POR ITEM</p><h3>Informações adicionais</h3></div><button type="button" class="add-field-button" onclick={addCustomField}><Plus size={16} /> Adicionar campo</button></div>

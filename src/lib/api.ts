@@ -275,7 +275,8 @@ export async function saveItem(input: Record<string, unknown>) {
       ? await transaction.get(oldCodeRef)
       : undefined;
     if (codeSnapshot.exists() && codeSnapshot.get('itemId') !== itemId) throw new Error('Já existe um item com esse código.');
-    if (typeof input.itemId === 'string' && !itemSnapshot.exists()) throw new Error('Item não encontrado.');
+    if (input.isUpdate === true && !itemSnapshot.exists()) throw new Error('Item não encontrado.');
+    if (input.isUpdate !== true && itemSnapshot.exists()) throw new Error('Já existe um item com esse identificador.');
     if (itemSnapshot.exists() && Number(itemSnapshot.get('quantity')) !== quantity) {
       throw new Error('Altere o saldo por uma movimentação de estoque.');
     }
