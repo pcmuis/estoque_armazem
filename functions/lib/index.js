@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteItemImage = exports.createImageUpload = exports.getDashboardSummary = exports.listMovements = exports.saveEmployee = exports.saveItem = exports.recordMovement = exports.searchItems = exports.verifyEmployee = void 0;
+exports.deleteItemImage = exports.createImageUpload = exports.getDashboardSummary = exports.listMovements = exports.saveEmployee = exports.saveItem = exports.recordMovement = exports.searchItems = exports.ensureAdminRole = exports.verifyEmployee = void 0;
 const node_crypto_1 = require("node:crypto");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const s3_request_presigner_1 = require("@aws-sdk/s3-request-presigner");
@@ -35,7 +35,7 @@ function requireAdmin(request) {
     if (!request.auth || request.auth.token.role !== 'admin')
         throw new https_1.HttpsError('permission-denied', 'Acesso administrativo necessário.');
 }
-exports.verifyEmployee = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+exports.verifyEmployee = (0, https_1.onCall)({ cors: ['https://estoquearmazem.vercel.app'], maxInstances: 10 }, async (request) => {
     const matricula = typeof request.data?.matricula === 'string' ? request.data.matricula.trim() : '';
     if (!/^[a-zA-Z0-9._-]{2,32}$/.test(matricula))
         throw new https_1.HttpsError('invalid-argument', 'Matrícula inválida.');
@@ -65,7 +65,21 @@ exports.verifyEmployee = (0, https_1.onCall)({ enforceAppCheck: true, maxInstanc
     });
     return { token };
 });
-exports.searchItems = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+exports.ensureAdminRole = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
+    if (!request.auth)
+        throw new https_1.HttpsError('unauthenticated', 'Entre com sua conta administrativa.');
+    const provider = request.auth.token.firebase?.sign_in_provider;
+    if (provider !== 'password' || request.auth.uid.startsWith('employee_')) {
+        throw new https_1.HttpsError('permission-denied', 'Acesso administrativo não autorizado.');
+    }
+    const auth = (0, auth_1.getAuth)();
+    const user = await auth.getUser(request.auth.uid);
+    if (!user.email)
+        throw new https_1.HttpsError('permission-denied', 'A conta administrativa precisa ter um e-mail.');
+    await auth.setCustomUserClaims(user.uid, { ...user.customClaims, role: 'admin' });
+    return { role: 'admin' };
+});
+exports.searchItems = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Entre no sistema para pesquisar.');
     const prefix = typeof request.data?.prefix === 'string' ? normalize(request.data.prefix).slice(0, 20) : '';
@@ -74,7 +88,7 @@ exports.searchItems = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances:
     const snapshot = await db.collection('items').where('active', '==', true).where('searchTokens', 'array-contains', prefix).limit(40).get();
     return { items: snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) };
 });
-exports.recordMovement = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 20 }, async (request) => {
+exports.recordMovement = (0, https_1.onCall)({ maxInstances: 20 }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Entre no sistema para movimentar o estoque.');
     const { itemId, movementType, quantity, idempotencyKey } = request.data ?? {};
@@ -124,7 +138,7 @@ exports.recordMovement = (0, https_1.onCall)({ enforceAppCheck: true, maxInstanc
     });
     return { quantityAfter };
 });
-exports.saveItem = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+exports.saveItem = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
     requireAdmin(request);
     const input = request.data ?? {};
     const name = typeof input.name === 'string' ? input.name.trim() : '';
@@ -180,7 +194,7 @@ exports.saveItem = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 10
     });
     return { itemId };
 });
-exports.saveEmployee = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+exports.saveEmployee = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
     requireAdmin(request);
     const input = request.data ?? {};
     const name = typeof input.name === 'string' ? input.name.trim() : '';
@@ -209,7 +223,7 @@ exports.saveEmployee = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances
     });
     return { employeeId };
 });
-exports.listMovements = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+exports.listMovements = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
     requireAdmin(request);
     const itemId = typeof request.data?.itemId === 'string' ? request.data.itemId : undefined;
     let movementsQuery = db.collection('stockMovements').orderBy('createdAt', 'desc').limit(100);
@@ -218,7 +232,7 @@ exports.listMovements = (0, https_1.onCall)({ enforceAppCheck: true, maxInstance
     const snapshot = await movementsQuery.get();
     return { movements: snapshot.docs.map((movement) => ({ id: movement.id, ...movement.data() })) };
 });
-exports.getDashboardSummary = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 10 }, async (request) => {
+exports.getDashboardSummary = (0, https_1.onCall)({ maxInstances: 10 }, async (request) => {
     requireAdmin(request);
     const offset = Number.isInteger(request.data?.timezoneOffsetMinutes) && Math.abs(request.data.timezoneOffsetMinutes) <= 840 ? request.data.timezoneOffsetMinutes : 0;
     const now = Date.now();
@@ -244,7 +258,7 @@ exports.getDashboardSummary = (0, https_1.onCall)({ enforceAppCheck: true, maxIn
         todayWithdrawals: withdrawals.data().count
     };
 });
-exports.createImageUpload = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket, r2PublicBaseUrl] }, async (request) => {
+exports.createImageUpload = (0, https_1.onCall)({ maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket, r2PublicBaseUrl] }, async (request) => {
     requireAdmin(request);
     const { itemId, contentType, size } = request.data ?? {};
     if (typeof itemId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(itemId) || contentType !== 'image/webp' || !Number.isSafeInteger(size) || size <= 0 || size > 5 * 1024 * 1024)
@@ -258,7 +272,7 @@ exports.createImageUpload = (0, https_1.onCall)({ enforceAppCheck: true, maxInst
     const imageUrl = `${r2PublicBaseUrl.value().replace(/\/$/, '')}/${imageObjectKey}`;
     return { uploadUrl, imageObjectKey, imageUrl };
 });
-exports.deleteItemImage = (0, https_1.onCall)({ enforceAppCheck: true, maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket] }, async (request) => {
+exports.deleteItemImage = (0, https_1.onCall)({ maxInstances: 5, secrets: [r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Bucket] }, async (request) => {
     requireAdmin(request);
     const { itemId, imageObjectKey } = request.data ?? {};
     if (typeof itemId !== 'string' || typeof imageObjectKey !== 'string' || !imageObjectKey.startsWith(`items/${itemId}/`) || imageObjectKey.includes('..')) {

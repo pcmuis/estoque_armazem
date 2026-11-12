@@ -409,6 +409,7 @@
 
 <svelte:head>
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Estoque" />
   <meta name="theme-color" content="#f3f5f2" />
   <title>Controle de Estoque</title>
