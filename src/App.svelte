@@ -36,6 +36,10 @@
   let busy = $state(false);
   let authLoading = $state(true);
   let errorMessage = $state('');
+  let indexCreationUrl = $state('');
+  let firestoreRulesUrl = $state('');
+  let adminSetupUrl = $state('');
+  let adminSetupUid = $state('');
   let successMessage = $state('');
   let search = $state('');
   let locationFilter = $state('');
@@ -97,6 +101,10 @@
       profile = await loadAccessProfile(currentUser);
     } catch (error) {
       showError(error);
+      if ((error as { code?: string }).code === 'app/admin-profile-required') {
+        adminSetupUid = currentUser.uid;
+        adminSetupUrl = getAdminSetupUrl(currentUser.uid);
+      }
       try { await signOutUser(); }
       finally { authLoading = false; }
       return;
@@ -398,15 +406,75 @@
 
   function showError(error: unknown) {
     const candidate = error as { message?: string; code?: string };
+    const message = candidate.message ?? '';
+    const code = candidate.code ?? '';
+    const firestoreCode = code.replace(/^firestore\//, '').split('/').at(-1) ?? '';
+    const indexRequired = /index/i.test(message) && /require|create it here/i.test(message);
+    const permissionDenied = firestoreCode === 'permission-denied' ||
+      /missing or insufficient permissions/i.test(message);
+    indexCreationUrl = extractIndexCreationUrl(message) || (indexRequired ? getIndexConsoleUrl() : '');
+    firestoreRulesUrl = permissionDenied ? getFirestoreRulesUrl() : '';
+    adminSetupUrl = '';
+    adminSetupUid = '';
+    if (indexCreationUrl) {
+      errorMessage = 'Esta consulta precisa de um índice do Firestore. Crie o índice pelo link abaixo.';
+      return;
+    }
     const messages: Record<string, string> = {
       'auth/invalid-credential': 'E-mail ou senha incorretos.',
       'auth/network-request-failed': 'Sem conexão com o servidor. Movimentações exigem conexão ativa.',
-      'permission-denied': 'O Firestore recusou o acesso. Publique as regras atualizadas e confirme que o administrador tem admins/{UID} com active: true.'
+      'permission-denied': 'O Firestore recusou o acesso. As regras do projeto podem estar desatualizadas; publique firestore.rules e confirme a autorização da conta ADM.',
+      'failed-precondition': /index/i.test(message)
+        ? 'Esta consulta precisa de um índice do Firestore. Abra a página de índices pelo link abaixo.'
+        : message
     };
-    errorMessage = candidate.code && messages[candidate.code] ? messages[candidate.code] : candidate.message ?? 'Ocorreu um erro. Tente novamente.';
+    const friendlyMessage = messages[code] ?? messages[firestoreCode] ??
+      (firestoreCode ? messages[`auth/${firestoreCode}`] : undefined);
+    errorMessage = friendlyMessage ?? (message || 'Ocorreu um erro. Tente novamente.');
   }
 
-  function clearMessages() { errorMessage = ''; successMessage = ''; }
+  function getIndexConsoleUrl() {
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+    return projectId
+      ? `https://console.firebase.google.com/project/${encodeURIComponent(projectId)}/firestore/indexes`
+      : '';
+  }
+
+  function extractIndexCreationUrl(message: string) {
+    const match = message.match(/https:\/\/console\.firebase\.google\.com\/[^\s"'<>]+/);
+    if (!match) return '';
+    const candidate = match[0].replace(/[),.;\]]+$/, '');
+    try {
+      const url = new URL(candidate);
+      if (url.hostname !== 'console.firebase.google.com' || !url.pathname.includes('/firestore/indexes')) return '';
+      return url.toString();
+    } catch {
+      return '';
+    }
+  }
+
+  function getFirestoreRulesUrl() {
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+    return projectId
+      ? `https://console.firebase.google.com/project/${encodeURIComponent(projectId)}/firestore/databases/-default-/rules`
+      : '';
+  }
+
+  function getAdminSetupUrl(uid: string) {
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+    return projectId
+      ? `https://console.firebase.google.com/project/${encodeURIComponent(projectId)}/firestore/databases/-default-/data/~2Fadmins~2F${encodeURIComponent(uid)}`
+      : '';
+  }
+
+  function clearMessages() {
+    errorMessage = '';
+    indexCreationUrl = '';
+    firestoreRulesUrl = '';
+    adminSetupUrl = '';
+    adminSetupUid = '';
+    successMessage = '';
+  }
   function locationLabel(item: InventoryItem) {
     return item.rackNumber && item.shelfNumber ? `E-${item.rackNumber.padStart(2, '0')} / P-${item.shelfNumber.padStart(2, '0')}` : 'LOCALIZAÇÃO NÃO CADASTRADA';
   }
@@ -437,6 +505,23 @@
   <meta name="theme-color" content="#f3f5f2" />
   <title>Controle de Estoque</title>
 </svelte:head>
+
+{#snippet ErrorActions()}
+  {#if indexCreationUrl || firestoreRulesUrl || adminSetupUrl}
+    <div class="firebase-error-actions">
+      {#if indexCreationUrl}
+        <a href={indexCreationUrl} target="_blank" rel="noreferrer">Abrir índices do Firestore</a>
+      {/if}
+      {#if firestoreRulesUrl}
+        <a href={firestoreRulesUrl} target="_blank" rel="noreferrer">Abrir regras do Firestore</a>
+      {/if}
+      {#if adminSetupUrl}
+        <p>UID da conta: <code>{adminSetupUid}</code>. No documento, adicione o campo booleano <code>active: true</code>.</p>
+        <a href={adminSetupUrl} target="_blank" rel="noreferrer">Autorizar esta conta ADM no Firestore</a>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
 
 {#if authLoading && !user}
   <main class="entry-screen">
@@ -475,7 +560,7 @@
           <button class="primary-button" type="submit" disabled={busy || !matricula.trim()}>{busy ? 'VALIDANDO...' : 'ACESSAR'} <span aria-hidden="true">↗</span></button>
         </form>
       {/if}
-      {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
+      {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{@render ErrorActions()}{/if}
       {#if successMessage}<p class="form-message success-message" role="status">{successMessage}</p>{/if}
       {#if !firebaseConfigured}<p class="form-message setup-message">Configure as variáveis Firebase do arquivo `.env` para conectar este sistema.</p>{/if}
       <p class="connection-note"><span></span> ACESSO RESTRITO A USUÁRIOS AUTORIZADOS</p>
@@ -499,7 +584,7 @@
         <div><p class="eyebrow">ARMAZÉM / ADMINISTRAÇÃO</p><h1>{page === 'overview' ? 'Visão geral' : page === 'items' ? 'Itens do estoque' : page === 'employees' ? 'Funcionários' : 'Movimentações'}</h1></div>
         <div class="user-chip"><ShieldCheck size={17} /><span>Administrador</span><button aria-label="Sair" onclick={logout}><LogOut size={17} /></button></div>
       </header>
-      {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span><button aria-label="Fechar aviso" onclick={() => errorMessage = ''}><X size={17} /></button></div>{/if}
+      {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span><button aria-label="Fechar aviso" onclick={clearMessages}><X size={17} /></button></div>{@render ErrorActions()}{/if}
       {#if successMessage}<div class="inline-message success-message" role="status"><Check size={18} />{successMessage}<button aria-label="Fechar aviso" onclick={() => successMessage = ''}><X size={17} /></button></div>{/if}
 
       {#if page === 'overview'}
@@ -562,7 +647,7 @@
       <div class="stock-brand"><div class="brand-mark"><Warehouse size={21} /></div><div><p class="eyebrow">ARMAZÉM · ESTOQUE</p><strong>{selectedItem ? 'Detalhes do item' : 'Consulta de materiais'}</strong></div></div>
       <div class="employee-chip"><span>{employee?.name ?? 'Funcionário'} · {employee?.matricula}</span><button title="Sair ou trocar funcionário" aria-label="Sair ou trocar funcionário" onclick={logout}><LogOut size={18} /></button></div>
     </header>
-    {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span><button aria-label="Fechar aviso" onclick={() => errorMessage = ''}><X size={17} /></button></div>{/if}
+    {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span><button aria-label="Fechar aviso" onclick={clearMessages}><X size={17} /></button></div>{@render ErrorActions()}{/if}
     {#if successMessage}<div class="inline-message success-message" role="status"><Check size={18} />{successMessage}<button aria-label="Fechar aviso" onclick={() => successMessage = ''}><X size={17} /></button></div>{/if}
     {#if selectedItem}
       <section class="detail-page">
@@ -616,6 +701,7 @@
         <p class="entry-hint">Aguarde enquanto confirmamos seu acesso.</p>
       {:else}
         <p class="form-message error-message" role="alert">{errorMessage || 'Não foi possível validar seu perfil. Tente novamente.'}</p>
+        {@render ErrorActions()}
         <button class="primary-button" onclick={logout}>VOLTAR AO LOGIN <span aria-hidden="true">↗</span></button>
       {/if}
     </section>
@@ -632,7 +718,7 @@
           {#each itemDraft.customFields as field, index (field.id)}<div class="custom-row"><label>Nome do campo<input bind:value={field.label} maxlength="60" placeholder="Ex.: Fabricante" /></label><label>Informação<input bind:value={field.value} maxlength="250" placeholder="Valor" /></label><button type="button" class="remove-field" aria-label="Remover campo" title="Remover campo" onclick={() => itemDraft.customFields = itemDraft.customFields.filter((_, position) => position !== index)}><Trash2 size={17} /></button></div>{/each}
           {#if !itemDraft.customFields.length}<p class="form-hint">Nenhuma informação adicional.</p>{/if}
         </section>
-        {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
+        {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{@render ErrorActions()}{/if}
         <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => itemDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy}>{busy ? 'SALVANDO...' : 'SALVAR ITEM'} <Check size={17} /></button></div>
       </form>
     </dialog>
@@ -647,7 +733,7 @@
         <div class="form-grid"><label class="wide-field">Nome completo<input bind:value={employeeDraft.name} maxlength="120" required /></label><label class="wide-field">Matrícula<input bind:value={employeeDraft.matricula} maxlength="32" disabled={!employeeNeedsAccount} required /></label>
           {#if employeeNeedsAccount}<label class="wide-field">Senha inicial do mantenedor<input type="password" bind:value={employeeDraft.password} minlength="6" autocomplete="new-password" required /><span class="form-hint">Necessária para criar o acesso deste mantenedor. Ele entrará com matrícula e senha.</span></label>{/if}
           <label class="check-label"><input type="checkbox" bind:checked={employeeDraft.active} /> Acesso ativo</label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.canAdd} /> Pode adicionar materiais</label><label class="check-label"><input type="checkbox" bind:checked={employeeDraft.canWithdraw} /> Pode retirar materiais</label></div>
-        {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
+        {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{@render ErrorActions()}{/if}
         <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => employeeDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy}>{busy ? 'SALVANDO...' : 'SALVAR FUNCIONÁRIO'} <Check size={17} /></button></div>
       </form>
     </dialog>
@@ -662,7 +748,7 @@
         <p class="admin-movement-item"><strong>{adminMovementItem.name}</strong><span>{adminMovementItem.code} · saldo {adminMovementItem.quantity} {adminMovementItem.unit}</span></p>
         <div class="segmented"><button type="button" class:chosen={adminMovementType === 'withdrawal'} onclick={() => adminMovementType = 'withdrawal'}><Minus size={17} /> Retirar</button><button type="button" class:chosen={adminMovementType === 'entry'} onclick={() => adminMovementType = 'entry'}><Plus size={17} /> Adicionar</button></div>
         <div class="form-grid admin-movement-fields"><label>Quantidade<input type="number" min="0.001" step="0.001" bind:value={adminMovementQuantity} required /></label><label>Motivo<input bind:value={adminMovementReason} maxlength="250" placeholder="Motivo do ajuste" /></label></div>
-        {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{/if}
+        {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{@render ErrorActions()}{/if}
         <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => adminMovementDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy || (adminMovementType === 'withdrawal' && adminMovementQuantity > adminMovementItem.quantity)}>{busy ? 'REGISTRANDO...' : 'CONFIRMAR'} <Check size={17} /></button></div>
       </form>
     </dialog>

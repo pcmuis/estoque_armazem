@@ -11,6 +11,15 @@ import type { Employee, InventoryItem, StockMovement } from './types';
 
 const employeeEmailDomain = '@staff.estoquearmazem.invalid';
 
+class AdminProfileRequiredError extends Error {
+  readonly code = 'app/admin-profile-required';
+
+  constructor(uid: string) {
+    super(`A conta autenticou, mas falta autorizá-la como administradora. Crie admins/${uid} com active: true.`);
+    this.name = 'AdminProfileRequiredError';
+  }
+}
+
 function normalize(value: string) {
   return value.trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
@@ -84,7 +93,7 @@ export async function loadAccessProfile(user: User) {
 
   const admin = await getDoc(doc(db, 'admins', user.uid));
   if (!admin.exists() || admin.get('active') !== true) {
-    throw new Error('Esta conta não está autorizada como administradora.');
+    throw new AdminProfileRequiredError(user.uid);
   }
   return { role: 'admin' as const, employee: null };
 }
