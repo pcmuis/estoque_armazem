@@ -428,7 +428,7 @@
     const messages: Record<string, string> = {
       'auth/invalid-credential': 'E-mail ou senha incorretos.',
       'auth/network-request-failed': 'Sem conexão com o servidor. Movimentações exigem conexão ativa.',
-      'permission-denied': 'O Firestore recusou o acesso. As regras do projeto podem estar desatualizadas; publique firestore.rules e confirme a autorização da conta ADM.',
+      'permission-denied': 'O Firestore bloqueou a operação. Mesmo com o perfil ADM ativo, as regras publicadas precisam permitir esta ação. Publique o arquivo firestore.rules no projeto Firebase usado pelo aplicativo.',
       'failed-precondition': /index/i.test(message)
         ? 'Esta consulta precisa de um índice do Firestore. Abra a página de índices pelo link abaixo.'
         : message

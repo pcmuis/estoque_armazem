@@ -97,9 +97,8 @@ service cloud.firestore {
           == (quantity <= 0 ? 'empty' : quantity <= resource.data.minimumStock ? 'low' : 'normal');
     }
 
-    function validEmployeeInitialMovement(movementId) {
-      let movement = request.resource.data;
-      let itemPath = /databases/$(database)/documents/items/$(movement.itemId);
+    function validEmployeeInitialMovement(movementId, itemId, movement) {
+      let itemPath = /databases/$(database)/documents/items/$(itemId);
       let item = getAfter(itemPath).data;
       let employee = get(employeePath()).data;
       return isEmployee()
@@ -112,7 +111,7 @@ service cloud.firestore {
         && item.createdAt == request.time
         && item.lastMovementId == movementId
         && movement.itemId is string
-        && movement.itemId == itemPath.segments[4]
+        && movement.itemId == itemId
         && movement.itemNameSnapshot == item.name
         && movement.itemCode == item.code
         && movement.employeeId == employeeId()
@@ -172,7 +171,7 @@ service cloud.firestore {
           ? !('lastMovementId' in item) && !existsAfter(movementPath)
           : item.lastMovementId == movementId
             && existsAfter(movementPath)
-            && validEmployeeInitialMovement(movementId));
+            && validEmployeeInitialMovement(movementId, itemId, getAfter(movementPath).data));
     }
 
     function validEmployeeItemCode(code) {
@@ -228,7 +227,8 @@ service cloud.firestore {
         !exists(/databases/$(database)/documents/stockMovements/$(movementId))
         || resource.data.employeeId == employeeId()
       ));
-      allow create: if isAdmin() || validEmployeeMovement(movementId) || validEmployeeInitialMovement(movementId);
+      allow create: if isAdmin() || validEmployeeMovement(movementId)
+        || validEmployeeInitialMovement(movementId, request.resource.data.itemId, request.resource.data);
       allow update, delete: if false;
     }
 
