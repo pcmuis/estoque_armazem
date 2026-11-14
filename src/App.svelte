@@ -69,7 +69,7 @@
   let adminMovementReason = $state('');
   let itemDraft = $state<ItemDraft>(emptyItem());
   let itemDraftId = $state('');
-  let itemIsEditing = $state(false);
+  let itemIsEditing = $derived(adminItems.some((item) => item.id === itemDraftId));
   let employeeDraft = $state({ name: '', matricula: '', password: '', active: true, canAdd: true, canWithdraw: true });
   let employeeDraftId = $state('');
   let employeeNeedsAccount = $state(true);
@@ -296,7 +296,6 @@
   function openNewItem() {
     itemDraft = emptyItem();
     itemDraftId = crypto.randomUUID();
-    itemIsEditing = false;
     chosenImage = null;
     itemDialog = true;
   }
@@ -310,7 +309,6 @@
       customFields: item.customFields.map((field) => ({ ...field })), active: item.active
     };
     itemDraftId = item.id;
-    itemIsEditing = true;
     chosenImage = null;
     selectedItem = null;
     itemDialog = true;
@@ -684,10 +682,17 @@
         <div class="quick-filter-row"><label class="location-filter"><Settings2 size={17} /><input bind:value={locationFilter} placeholder="Filtrar por estante ou prateleira" /></label><span><span class="dot normal-dot"></span>Disponível <span class="dot low-dot"></span>Baixo <span class="dot empty-dot"></span>Zerado</span></div>
         {#if items.length}
           <div class="inventory-grid">{#each items.filter((item) => !locationFilter || `${item.rackNumber} ${item.shelfNumber}`.toLowerCase().includes(locationFilter.toLowerCase())) as item (item.id)}
-            <button class="inventory-card" onclick={() => { selectedItem = item; clearMessages(); }}>
-              <div class="card-image">{#if item.imageUrl}<img src={item.imageUrl} alt="" loading="lazy" />{:else}<div class="card-placeholder"><Boxes size={25} /></div>{/if}</div>
-              <div class="card-body"><div class="card-heading"><span class="eyebrow">{item.code}</span><span class="status-mark" class:mark-empty={stockStatus(item) === 'empty'} class:mark-low={stockStatus(item) === 'low'}></span></div><h2>{item.name}</h2><p class="card-location">{locationLabel(item)}</p><div class="card-footer"><strong class:danger-text={item.quantity === 0}>{#if item.quantity === 0}SEM ESTOQUE{:else}{item.quantity} <span>{item.unit}</span>{/if}</strong><span>mín. {item.minimumStock}</span></div></div>
-            </button>
+            <div class="inventory-card-row" class:has-add-action={employee?.canAdd}>
+              <button type="button" class="inventory-card" onclick={() => { selectedItem = item; clearMessages(); }}>
+                <div class="card-image">{#if item.imageUrl}<img src={item.imageUrl} alt="" loading="lazy" />{:else}<div class="card-placeholder"><Boxes size={25} /></div>{/if}</div>
+                <div class="card-body"><div class="card-heading"><span class="eyebrow">{item.code}</span><span class="status-mark" class:mark-empty={stockStatus(item) === 'empty'} class:mark-low={stockStatus(item) === 'low'}></span></div><h2>{item.name}</h2><p class="card-location">{locationLabel(item)}</p><div class="card-footer"><strong class:danger-text={item.quantity === 0}>{#if item.quantity === 0}SEM ESTOQUE{:else}{item.quantity} <span>{item.unit}</span>{/if}</strong><span>mín. {item.minimumStock}</span></div></div>
+              </button>
+              {#if employee?.canAdd}
+                <button type="button" class="icon-action inventory-add-action" aria-label={`Adicionar ${item.name} ao estoque`} title="Adicionar ao estoque" onclick={() => { selectedItem = item; movementType = 'entry'; clearMessages(); }}>
+                  <PackagePlus size={19} />
+                </button>
+              {/if}
+            </div>
           {/each}</div>
         {:else}<div class="empty-stock"><Boxes size={27} /><p>Nenhum material encontrado.</p><span>Confira o código ou tente outro termo.</span></div>{/if}
         {#if hasMoreItems && !search.trim()}<button class="load-more" onclick={loadMoreItems} disabled={loadingMore}>{loadingMore ? 'CARREGANDO...' : 'CARREGAR MAIS ITENS'} <ChevronDown size={18} /></button>{/if}
@@ -716,7 +721,7 @@
     <dialog open class="edit-dialog" aria-labelledby="item-dialog-title">
       <header class="dialog-header"><div><p class="eyebrow">CATÁLOGO DE ESTOQUE</p><h2 id="item-dialog-title">{itemIsEditing ? 'Editar item' : 'Novo item'}</h2></div><button class="icon-action" aria-label="Fechar" onclick={() => itemDialog = false}><X size={20} /></button></header>
       <form class="dialog-form" onsubmit={submitItem}>
-        <div class="form-grid"><label>Nome do item<input bind:value={itemDraft.name} maxlength="120" required /></label><label>Código único<input bind:value={itemDraft.code} maxlength="64" required /></label><label>Categoria<input bind:value={itemDraft.category} maxlength="80" /></label><label>Tipo<select bind:value={itemDraft.itemType}><option value="piece">Peça</option><option value="component">Componente</option><option value="tool">Ferramenta</option><option value="machine">Máquina</option></select></label><label>Controle<select bind:value={itemDraft.trackingMode}><option value="quantity">Quantidade</option><option value="asset">Individual (série/patrimônio)</option></select></label><label>Unidade<input bind:value={itemDraft.unit} maxlength="20" required /></label><label>Quantidade inicial<input type="number" min="0" step="0.001" bind:value={itemDraft.quantity} required disabled={!!adminItems.find((item) => item.id === itemDraftId)} /></label><label>Estoque mínimo<input type="number" min="0" step="0.001" bind:value={itemDraft.minimumStock} required /></label><label>Estante<input bind:value={itemDraft.rackNumber} maxlength="20" /></label><label>Prateleira<input bind:value={itemDraft.shelfNumber} maxlength="20" /></label><label>Localização complementar<input bind:value={itemDraft.locationNote} maxlength="100" /></label><label class="wide-field">Descrição<textarea bind:value={itemDraft.description} maxlength="2000" rows="3"></textarea></label><label class="wide-field upload-control"><span>Fotografia do item</span><span class="upload-box"><Upload size={19} />{chosenImage?.name ?? (itemDraft.imageUrl ? 'Substituir fotografia' : 'Selecionar imagem')}<input type="file" accept="image/*" onchange={(event) => chosenImage = event.currentTarget.files?.[0] ?? null} /></span>{#if itemDraft.imageUrl}<div class="image-actions"><img class="upload-preview" src={itemDraft.imageUrl} alt="Prévia do item" /><button type="button" class="remove-image" onclick={removeItemImage} disabled={busy}><Trash2 size={16} /> Excluir fotografia</button></div>{/if}</label><label class="check-label"><input type="checkbox" bind:checked={itemDraft.active} /> Item ativo</label></div>
+        <div class="form-grid"><label>Nome do item<input bind:value={itemDraft.name} maxlength="120" required /></label><label>Código único<input bind:value={itemDraft.code} maxlength="64" required /></label><label>Tipo<select bind:value={itemDraft.itemType}><option value="piece">Peça</option><option value="component">Componente</option><option value="tool">Ferramenta</option><option value="machine">Máquina</option></select></label><label>Unidade<input bind:value={itemDraft.unit} maxlength="20" required /></label><label>Quantidade inicial<input type="number" min="0" step="0.001" bind:value={itemDraft.quantity} required disabled={!!adminItems.find((item) => item.id === itemDraftId)} /></label><label>Estante<input bind:value={itemDraft.rackNumber} maxlength="20" /></label><label>Prateleira<input bind:value={itemDraft.shelfNumber} maxlength="20" /></label><label>Localização complementar<input bind:value={itemDraft.locationNote} maxlength="100" /></label><label class="wide-field">Descrição<textarea bind:value={itemDraft.description} maxlength="2000" rows="3"></textarea></label><label class="wide-field upload-control"><span>Fotografia do item</span><span class="upload-box"><Upload size={19} />{chosenImage?.name ?? (itemDraft.imageUrl ? 'Substituir fotografia' : 'Selecionar imagem')}<input type="file" accept="image/*" onchange={(event) => chosenImage = event.currentTarget.files?.[0] ?? null} /></span>{#if itemDraft.imageUrl}<div class="image-actions"><img class="upload-preview" src={itemDraft.imageUrl} alt="Prévia do item" /><button type="button" class="remove-image" onclick={removeItemImage} disabled={busy}><Trash2 size={16} /> Excluir fotografia</button></div>{/if}</label><label class="check-label"><input type="checkbox" bind:checked={itemDraft.active} /> Item ativo</label></div>
         <section class="custom-editor"><div class="section-heading"><div><p class="eyebrow">FLEXÍVEL POR ITEM</p><h3>Informações adicionais</h3></div><button type="button" class="add-field-button" onclick={addCustomField}><Plus size={16} /> Adicionar campo</button></div>
           {#each itemDraft.customFields as field, index (field.id)}<div class="custom-row"><label>Nome do campo<input bind:value={field.label} maxlength="60" placeholder="Ex.: Fabricante" /></label><label>Informação<input bind:value={field.value} maxlength="250" placeholder="Valor" /></label><button type="button" class="remove-field" aria-label="Remover campo" title="Remover campo" onclick={() => itemDraft.customFields = itemDraft.customFields.filter((_, position) => position !== index)}><Trash2 size={17} /></button></div>{/each}
           {#if !itemDraft.customFields.length}<p class="form-hint">Nenhuma informação adicional.</p>{/if}
