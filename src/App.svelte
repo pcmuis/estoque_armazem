@@ -650,7 +650,10 @@
   <main class="stock-app">
     <header class="stock-header">
       <div class="stock-brand"><div class="brand-mark"><Warehouse size={21} /></div><div><p class="eyebrow">ARMAZÉM · ESTOQUE</p><strong>{selectedItem ? 'Detalhes do item' : 'Consulta de materiais'}</strong></div></div>
-      <div class="employee-chip"><span>{employee?.name ?? 'Funcionário'} · {employee?.matricula}</span><button title="Sair ou trocar funcionário" aria-label="Sair ou trocar funcionário" onclick={logout}><LogOut size={18} /></button></div>
+      <div class="stock-header-actions">
+        <button type="button" class="primary-action" onclick={openNewItem}><Plus size={18} /> Cadastrar peça</button>
+        <div class="employee-chip"><span>{employee?.name ?? 'Funcionário'} · {employee?.matricula}</span><button title="Sair ou trocar funcionário" aria-label="Sair ou trocar funcionário" onclick={logout}><LogOut size={18} /></button></div>
+      </div>
     </header>
     {#if errorMessage}<div class="inline-message error-message" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span><button aria-label="Fechar aviso" onclick={clearMessages}><X size={17} /></button></div>{@render ErrorActions()}{/if}
     {#if successMessage}<div class="inline-message success-message" role="status"><Check size={18} />{successMessage}<button aria-label="Fechar aviso" onclick={() => successMessage = ''}><X size={17} /></button></div>{/if}
@@ -681,7 +684,7 @@
       </section>
     {:else}
       <section class="inventory-page">
-        <div class="inventory-intro"><div><p class="eyebrow">CONSULTA RÁPIDA</p><h1>Encontre seu material.</h1></div><div class="inventory-intro-actions"><p>{items.length} {items.length === 1 ? 'resultado' : 'resultados'}</p><button type="button" class="primary-action" onclick={openNewItem}><Plus size={18} /> Cadastrar peça</button></div></div>
+        <div class="inventory-intro"><div><p class="eyebrow">CONSULTA RÁPIDA</p><h1>Encontre seu material.</h1></div><p>{items.length} {items.length === 1 ? 'resultado' : 'resultados'}</p></div>
         <div class="search-box main-search"><Search size={21} /><input bind:value={search} placeholder="Nome, código ou informação adicional" aria-label="Buscar materiais" /><kbd>↵</kbd></div>
         <div class="quick-filter-row"><label class="location-filter"><Settings2 size={17} /><input bind:value={locationFilter} placeholder="Filtrar por estante ou prateleira" /></label><span><span class="dot normal-dot"></span>Disponível <span class="dot low-dot"></span>Baixo <span class="dot empty-dot"></span>Zerado</span></div>
         {#if items.length}
