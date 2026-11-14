@@ -40,7 +40,7 @@ O administrador cadastra cada mantenedor no painel e define uma senha inicial de
 
 Uma matrícula sozinha não autentica uma pessoa: ela é um identificador público e qualquer pessoa poderia informar a matrícula de outra, registrar movimentações e falsificar o histórico. Por isso, a matrícula é vinculada a uma conta do Firebase Authentication e exige senha. Não há fluxo de acesso por matrícula sem senha.
 
-Mantenedores só podem consultar itens ativos e registrar entradas/retiradas permitidas. Cada movimentação é gravada junto com a atualização do saldo em uma transação do Firestore; as regras impedem alterar/excluir o histórico ou alterar outros dados do item. Administradores podem gerenciar itens e mantenedores, além de consultar o histórico paginado de todas as movimentações.
+Mantenedores podem consultar itens ativos e cadastrar novos materiais; o saldo inicial do cadastro, quando informado, é registrado no histórico. Eles também podem registrar entradas/retiradas conforme as permissões configuradas pelo administrador. O cadastro não permite editar materiais existentes. Cada movimentação é gravada junto com a atualização do saldo em uma transação do Firestore; as regras impedem alterar/excluir o histórico ou alterar outros dados do item. Administradores podem gerenciar itens e mantenedores, além de consultar o histórico paginado de todas as movimentações.
 
 ## Imagens
 

@@ -335,8 +335,12 @@
       }
       await saveItem({ ...itemDraft, itemId: itemDraftId, isUpdate: itemIsEditing });
       itemDialog = false;
-      if (!successMessage) successMessage = 'Cadastro do item salvo.';
-      await loadAdminData();
+      successMessage = userRole === 'employee' ? 'Peça cadastrada com sucesso.' : 'Cadastro do item salvo.';
+      if (userRole === 'admin') await loadAdminData();
+      else {
+        search = '';
+        await refreshItems('');
+      }
     } catch (error) { showError(error); }
     finally { busy = false; }
   }
@@ -677,7 +681,7 @@
       </section>
     {:else}
       <section class="inventory-page">
-        <div class="inventory-intro"><div><p class="eyebrow">CONSULTA RÁPIDA</p><h1>Encontre seu material.</h1></div><p>{items.length} {items.length === 1 ? 'resultado' : 'resultados'}</p></div>
+        <div class="inventory-intro"><div><p class="eyebrow">CONSULTA RÁPIDA</p><h1>Encontre seu material.</h1></div><div class="inventory-intro-actions"><p>{items.length} {items.length === 1 ? 'resultado' : 'resultados'}</p><button type="button" class="primary-action" onclick={openNewItem}><Plus size={18} /> Cadastrar peça</button></div></div>
         <div class="search-box main-search"><Search size={21} /><input bind:value={search} placeholder="Nome, código ou informação adicional" aria-label="Buscar materiais" /><kbd>↵</kbd></div>
         <div class="quick-filter-row"><label class="location-filter"><Settings2 size={17} /><input bind:value={locationFilter} placeholder="Filtrar por estante ou prateleira" /></label><span><span class="dot normal-dot"></span>Disponível <span class="dot low-dot"></span>Baixo <span class="dot empty-dot"></span>Zerado</span></div>
         {#if items.length}
@@ -719,15 +723,15 @@
 {#if itemDialog}
   <div class="dialog-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) itemDialog = false; }}>
     <dialog open class="edit-dialog" aria-labelledby="item-dialog-title">
-      <header class="dialog-header"><div><p class="eyebrow">CATÁLOGO DE ESTOQUE</p><h2 id="item-dialog-title">{itemIsEditing ? 'Editar item' : 'Novo item'}</h2></div><button class="icon-action" aria-label="Fechar" onclick={() => itemDialog = false}><X size={20} /></button></header>
+      <header class="dialog-header"><div><p class="eyebrow">CATÁLOGO DE ESTOQUE</p><h2 id="item-dialog-title">{itemIsEditing ? 'Editar item' : userRole === 'employee' ? 'Cadastrar peça' : 'Novo item'}</h2></div><button class="icon-action" aria-label="Fechar" onclick={() => itemDialog = false}><X size={20} /></button></header>
       <form class="dialog-form" onsubmit={submitItem}>
-        <div class="form-grid"><label>Nome do item<input bind:value={itemDraft.name} maxlength="120" required /></label><label>Código único<input bind:value={itemDraft.code} maxlength="64" required /></label><label>Tipo<select bind:value={itemDraft.itemType}><option value="piece">Peça</option><option value="component">Componente</option><option value="tool">Ferramenta</option><option value="machine">Máquina</option></select></label><label>Unidade<input bind:value={itemDraft.unit} maxlength="20" required /></label><label>Quantidade inicial<input type="number" min="0" step="0.001" bind:value={itemDraft.quantity} required disabled={!!adminItems.find((item) => item.id === itemDraftId)} /></label><label>Estante<input bind:value={itemDraft.rackNumber} maxlength="20" /></label><label>Prateleira<input bind:value={itemDraft.shelfNumber} maxlength="20" /></label><label>Localização complementar<input bind:value={itemDraft.locationNote} maxlength="100" /></label><label class="wide-field">Descrição<textarea bind:value={itemDraft.description} maxlength="2000" rows="3"></textarea></label><label class="wide-field upload-control"><span>Fotografia do item</span><span class="upload-box"><Upload size={19} />{chosenImage?.name ?? (itemDraft.imageUrl ? 'Substituir fotografia' : 'Selecionar imagem')}<input type="file" accept="image/*" onchange={(event) => chosenImage = event.currentTarget.files?.[0] ?? null} /></span>{#if itemDraft.imageUrl}<div class="image-actions"><img class="upload-preview" src={itemDraft.imageUrl} alt="Prévia do item" /><button type="button" class="remove-image" onclick={removeItemImage} disabled={busy}><Trash2 size={16} /> Excluir fotografia</button></div>{/if}</label><label class="check-label"><input type="checkbox" bind:checked={itemDraft.active} /> Item ativo</label></div>
+        <div class="form-grid"><label>Nome do item<input bind:value={itemDraft.name} maxlength="120" required /></label><label>Código único<input bind:value={itemDraft.code} maxlength="64" required /></label><label>Tipo<select bind:value={itemDraft.itemType}><option value="piece">Peça</option><option value="component">Componente</option><option value="tool">Ferramenta</option><option value="machine">Máquina</option></select></label><label>Unidade<input bind:value={itemDraft.unit} maxlength="20" required /></label><label>Quantidade inicial<input type="number" min="0" step="0.001" bind:value={itemDraft.quantity} required disabled={!!adminItems.find((item) => item.id === itemDraftId)} /></label><label>Estante<input bind:value={itemDraft.rackNumber} maxlength="20" /></label><label>Prateleira<input bind:value={itemDraft.shelfNumber} maxlength="20" /></label><label>Localização complementar<input bind:value={itemDraft.locationNote} maxlength="100" /></label><label class="wide-field">Descrição<textarea bind:value={itemDraft.description} maxlength="2000" rows="3"></textarea></label><label class="wide-field upload-control"><span>Fotografia do item</span><span class="upload-box"><Upload size={19} />{chosenImage?.name ?? (itemDraft.imageUrl ? 'Substituir fotografia' : 'Selecionar imagem')}<input type="file" accept="image/*" onchange={(event) => chosenImage = event.currentTarget.files?.[0] ?? null} /></span>{#if itemDraft.imageUrl}<div class="image-actions"><img class="upload-preview" src={itemDraft.imageUrl} alt="Prévia do item" /><button type="button" class="remove-image" onclick={removeItemImage} disabled={busy}><Trash2 size={16} /> Excluir fotografia</button></div>{/if}</label>{#if userRole === 'admin'}<label class="check-label"><input type="checkbox" bind:checked={itemDraft.active} /> Item ativo</label>{/if}</div>
         <section class="custom-editor"><div class="section-heading"><div><p class="eyebrow">FLEXÍVEL POR ITEM</p><h3>Informações adicionais</h3></div><button type="button" class="add-field-button" onclick={addCustomField}><Plus size={16} /> Adicionar campo</button></div>
           {#each itemDraft.customFields as field, index (field.id)}<div class="custom-row"><label>Nome do campo<input bind:value={field.label} maxlength="60" placeholder="Ex.: Fabricante" /></label><label>Informação<input bind:value={field.value} maxlength="250" placeholder="Valor" /></label><button type="button" class="remove-field" aria-label="Remover campo" title="Remover campo" onclick={() => itemDraft.customFields = itemDraft.customFields.filter((_, position) => position !== index)}><Trash2 size={17} /></button></div>{/each}
           {#if !itemDraft.customFields.length}<p class="form-hint">Nenhuma informação adicional.</p>{/if}
         </section>
         {#if errorMessage}<p class="form-message error-message" role="alert">{errorMessage}</p>{@render ErrorActions()}{/if}
-        <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => itemDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy}>{busy ? 'SALVANDO...' : 'SALVAR ITEM'} <Check size={17} /></button></div>
+        <div class="dialog-actions"><button class="quiet-button" type="button" onclick={() => itemDialog = false}>Cancelar</button><button class="primary-action" type="submit" disabled={busy}>{busy ? 'SALVANDO...' : userRole === 'employee' ? 'CADASTRAR PEÇA' : 'SALVAR ITEM'} <Check size={17} /></button></div>
       </form>
     </dialog>
   </div>

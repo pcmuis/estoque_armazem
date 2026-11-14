@@ -232,14 +232,25 @@ export async function recordMovement(input: { itemId: string; movementType: 'ent
 
 export async function saveItem(input: Record<string, unknown>) {
   const { auth, db } = getFirebaseServices();
-  if (!auth.currentUser) throw new Error('Entre com a conta administrativa para cadastrar itens.');
+  const user = auth.currentUser;
+  if (!user) throw new Error('Entre com uma conta autorizada para cadastrar itens.');
+  const employeeEmail = isEmployeeEmail(user.email);
+  if (employeeEmail && input.isUpdate === true) throw new Error('Funcionários não podem editar itens cadastrados.');
   const name = typeof input.name === 'string' ? input.name.trim() : '';
   const code = typeof input.code === 'string' ? input.code.trim() : '';
   const quantity = Number(input.quantity);
-  const minimumStock = Number(input.minimumStock);
+  const minimumStock = employeeEmail ? 0 : Number(input.minimumStock);
   if (!name || name.length > 120 || !code || code.length > 64 || !validQuantity(quantity) || !validQuantity(minimumStock)) {
     throw new Error('Confira nome, código e quantidades do item.');
   }
+  const employeeAccessSnapshot = employeeEmail
+    ? await getDoc(doc(db, 'employeeAuth', user.uid))
+    : undefined;
+  if (employeeEmail && (!employeeAccessSnapshot?.exists() || employeeAccessSnapshot.get('active') !== true)) {
+    throw new Error('Acesso de funcionário inativo ou não cadastrado.');
+  }
+  const employeeId = employeeEmail ? String(employeeAccessSnapshot?.get('employeeId') ?? '') : '';
+  const employeeRef = employeeEmail ? doc(db, 'employees', employeeId) : undefined;
   const customFields = Array.isArray(input.customFields) ? input.customFields : [];
   if (customFields.length > 30 || customFields.some((field) => !field || typeof field !== 'object' ||
     typeof (field as { label?: unknown }).label !== 'string' || !(field as { label: string }).label.trim() ||
@@ -250,6 +261,8 @@ export async function saveItem(input: Record<string, unknown>) {
   const itemRef = doc(db, 'items', itemId);
   const normalizedCode = normalize(code);
   const codeRef = doc(db, 'itemCodes', await hashId(normalizedCode));
+  const initialMovementId = `initial_${itemId}`;
+  const initialMovementRef = doc(db, 'stockMovements', initialMovementId);
   const prior = await getDoc(itemRef);
   const oldCodeRef = prior.exists() ? doc(db, 'itemCodes', await hashId(normalize(String(prior.get('code'))))) : undefined;
   const oldCode = prior.exists() ? normalize(String(prior.get('code'))) : '';
@@ -265,29 +278,44 @@ export async function saveItem(input: Record<string, unknown>) {
     })),
     active: input.active !== false,
     searchTokens: makeSearchTokens([name, code, String(input.description ?? ''), ...customFields.flatMap((field: { label: string; value: string }) => [field.label, field.value])]),
-    updatedAt: serverTimestamp()
+    updatedAt: serverTimestamp(),
+    ...(employeeEmail ? { createdByUid: user.uid, codeKey: codeRef.id } : {})
   };
 
   await runTransaction(db, async (transaction) => {
-    const itemSnapshot = await transaction.get(itemRef);
-    const codeSnapshot = await transaction.get(codeRef);
+    const [itemSnapshot, codeSnapshot, employeeSnapshot] = await Promise.all([
+      transaction.get(itemRef),
+      transaction.get(codeRef),
+      employeeRef ? transaction.get(employeeRef) : Promise.resolve(undefined)
+    ]);
     const oldCodeSnapshot = oldCodeRef && oldCodeRef.path !== codeRef.path
       ? await transaction.get(oldCodeRef)
       : undefined;
+    const employee = employeeSnapshot?.data();
+    if (employeeEmail && (!employee || employee.authUid !== user.uid || employee.active !== true)) {
+      throw new Error('Funcionário inativo.');
+    }
     if (codeSnapshot.exists() && codeSnapshot.get('itemId') !== itemId) throw new Error('Já existe um item com esse código.');
     if (input.isUpdate === true && !itemSnapshot.exists()) throw new Error('Item não encontrado.');
     if (input.isUpdate !== true && itemSnapshot.exists()) throw new Error('Já existe um item com esse identificador.');
     if (itemSnapshot.exists() && Number(itemSnapshot.get('quantity')) !== quantity) {
       throw new Error('Altere o saldo por uma movimentação de estoque.');
     }
-    transaction.set(itemRef, { ...payload, ...(itemSnapshot.exists() ? {} : { createdAt: serverTimestamp() }) }, { merge: true });
+    const hasInitialStock = employeeEmail && !itemSnapshot.exists() && quantity > 0;
+    transaction.set(itemRef, {
+      ...payload,
+      ...(itemSnapshot.exists() ? {} : { createdAt: serverTimestamp() }),
+      ...(hasInitialStock ? { lastMovementId: initialMovementId } : {})
+    }, { merge: true });
     transaction.set(codeRef, { itemId });
     if (!itemSnapshot.exists() && quantity > 0) {
-      transaction.set(doc(db, 'stockMovements', `initial_${itemId}`), {
-        itemId, itemNameSnapshot: name, itemCode: code, employeeId: auth.currentUser?.uid,
-        employeeNameSnapshot: auth.currentUser?.email ?? 'Administração', matriculaSnapshot: 'ADMIN',
+      transaction.set(initialMovementRef, {
+        itemId, itemNameSnapshot: name, itemCode: code,
+        employeeId: employeeEmail ? employeeId : user.uid,
+        employeeNameSnapshot: employeeEmail ? String(employee?.name ?? '') : user.displayName ?? user.email ?? 'Administração',
+        matriculaSnapshot: employeeEmail ? String(employee?.matricula ?? '') : 'ADMIN',
         movementType: 'entry', quantity, quantityBefore: 0, quantityAfter: quantity,
-        reason: 'Saldo inicial do cadastro', createdAt: serverTimestamp(), idempotencyKey: `initial_${itemId}`
+        reason: 'Saldo inicial do cadastro', createdAt: serverTimestamp(), idempotencyKey: initialMovementId
       });
     }
     if (oldCodeSnapshot?.exists() && oldCodeRef && oldCodeSnapshot.get('itemId') === itemId) transaction.delete(oldCodeRef);

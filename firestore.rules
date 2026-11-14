@@ -97,14 +97,108 @@ service cloud.firestore {
           == (quantity <= 0 ? 'empty' : quantity <= resource.data.minimumStock ? 'low' : 'normal');
     }
 
+    function validEmployeeInitialMovement(movementId) {
+      let movement = request.resource.data;
+      let itemPath = /databases/$(database)/documents/items/$(movement.itemId);
+      let item = getAfter(itemPath).data;
+      let employee = get(employeePath()).data;
+      return isEmployee()
+        && movement.keys().hasOnly([
+          'itemId', 'itemNameSnapshot', 'itemCode', 'employeeId', 'employeeNameSnapshot',
+          'matriculaSnapshot', 'movementType', 'quantity', 'quantityBefore', 'quantityAfter',
+          'reason', 'createdAt', 'idempotencyKey'
+        ])
+        && item.createdByUid == request.auth.uid
+        && item.createdAt == request.time
+        && item.lastMovementId == movementId
+        && movement.itemId is string
+        && movement.itemId == itemPath.segments[4]
+        && movement.itemNameSnapshot == item.name
+        && movement.itemCode == item.code
+        && movement.employeeId == employeeId()
+        && movement.employeeNameSnapshot == employee.name
+        && movement.matriculaSnapshot == employee.matricula
+        && movement.movementType == 'entry'
+        && movement.quantity is number
+        && movement.quantity > 0
+        && movement.quantity <= 1000000000
+        && movement.quantityBefore == 0
+        && movement.quantityAfter == item.quantity
+        && movement.reason == 'Saldo inicial do cadastro'
+        && movement.createdAt == request.time
+        && movement.idempotencyKey == movementId;
+    }
+
+    function validEmployeeItemCreate(itemId) {
+      let item = request.resource.data;
+      let movementId = 'initial_' + itemId;
+      let movementPath = /databases/$(database)/documents/stockMovements/$(movementId);
+      return isEmployee()
+        && item.keys().hasOnly([
+          'name', 'code', 'description', 'category', 'itemType', 'trackingMode', 'unit',
+          'quantity', 'minimumStock', 'stockStatus', 'rackNumber', 'shelfNumber',
+          'locationNote', 'imageUrl', 'imageObjectKey', 'customFields', 'active',
+          'searchTokens', 'updatedAt', 'createdAt', 'createdByUid', 'codeKey', 'lastMovementId'
+        ])
+        && item.keys().hasAll([
+          'name', 'code', 'description', 'category', 'itemType', 'trackingMode', 'unit',
+          'quantity', 'minimumStock', 'stockStatus', 'rackNumber', 'shelfNumber',
+          'locationNote', 'imageUrl', 'imageObjectKey', 'customFields', 'active',
+          'searchTokens', 'updatedAt', 'createdAt', 'createdByUid', 'codeKey'
+        ])
+        && item.createdByUid == request.auth.uid
+        && item.name is string && item.name.size() > 0 && item.name.size() <= 120
+        && item.code is string && item.code.size() > 0 && item.code.size() <= 64
+        && item.description is string && item.description.size() <= 2000
+        && item.category is string && item.category.size() <= 80
+        && item.itemType in ['piece', 'component', 'tool', 'machine']
+        && item.trackingMode == 'quantity'
+        && item.unit is string && item.unit.size() > 0 && item.unit.size() <= 20
+        && item.quantity is number && item.quantity >= 0 && item.quantity <= 1000000000
+        && item.minimumStock == 0
+        && item.stockStatus == (item.quantity <= 0 ? 'empty' : 'normal')
+        && item.rackNumber is string && item.rackNumber.size() <= 20
+        && item.shelfNumber is string && item.shelfNumber.size() <= 20
+        && item.locationNote is string && item.locationNote.size() <= 100
+        && item.imageUrl is string
+        && item.imageObjectKey == ''
+        && item.customFields is list && item.customFields.size() <= 30
+        && item.searchTokens is list && item.searchTokens.size() <= 300
+        && item.active == true
+        && item.createdAt == request.time
+        && item.updatedAt == request.time
+        && item.codeKey is string
+        && (item.quantity == 0
+          ? !('lastMovementId' in item) && !existsAfter(movementPath)
+          : item.lastMovementId == movementId
+            && existsAfter(movementPath)
+            && validEmployeeInitialMovement(movementId));
+    }
+
+    function validEmployeeItemCode(code) {
+      let mapping = request.resource.data;
+      let itemPath = /databases/$(database)/documents/items/$(mapping.itemId);
+      let item = getAfter(itemPath).data;
+      return isEmployee()
+        && mapping.keys().hasOnly(['itemId'])
+        && mapping.itemId is string
+        && item.createdByUid == request.auth.uid
+        && item.createdAt == request.time
+        && item.codeKey == code
+        && item.active == true;
+    }
+
     match /admins/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow write: if false;
     }
 
     match /items/{itemId} {
-      allow read: if isAdmin() || (isEmployee() && resource.data.active == true);
-      allow create, delete: if isAdmin();
+      allow get: if isAdmin() || (isEmployee()
+        && (!exists(/databases/$(database)/documents/items/$(itemId)) || resource.data.active == true));
+      allow list: if isAdmin() || (isEmployee() && resource.data.active == true);
+      allow create: if isAdmin() || validEmployeeItemCreate(itemId);
+      allow delete: if isAdmin();
       allow update: if isAdmin() || validEmployeeStockUpdate(itemId);
     }
 
@@ -124,7 +218,9 @@ service cloud.firestore {
     }
 
     match /itemCodes/{code} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isEmployee();
+      allow create: if isAdmin() || validEmployeeItemCode(code);
+      allow update, delete: if isAdmin();
     }
 
     match /stockMovements/{movementId} {
@@ -132,7 +228,7 @@ service cloud.firestore {
         !exists(/databases/$(database)/documents/stockMovements/$(movementId))
         || resource.data.employeeId == employeeId()
       ));
-      allow create: if isAdmin() || validEmployeeMovement(movementId);
+      allow create: if isAdmin() || validEmployeeMovement(movementId) || validEmployeeInitialMovement(movementId);
       allow update, delete: if false;
     }
 
